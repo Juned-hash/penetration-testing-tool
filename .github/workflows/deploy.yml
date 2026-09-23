@@ -1,0 +1,132 @@
+name: Deploy Docker Services
+on:
+  workflow_dispatch:
+
+
+jobs:
+  test:
+    name: Run Test Suite & Security Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@9e72090525849c5e82e596468b86eb55e9cc5401 # v2.32.0
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, exif, pcntl, bcmath, gd, zip, opcache, intl, redis
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: |
+          composer install --prefer-dist --no-interaction --optimize-autoloader
+
+      - name: Install NPM dependencies & build assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          cat << 'EOF' >> .env
+          APP_ENV=testing
+          APP_DEBUG=true
+          APP_KEY=base64:$(php -r "echo base64_encode(random_bytes(32));")
+          DB_CONNECTION=sqlite
+          DB_DATABASE=:memory:
+          CACHE_STORE=array
+          SESSION_DRIVER=array
+          QUEUE_CONNECTION=sync
+          MAIL_MAILER=array
+          REDIS_HOST=127.0.0.1
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_DATABASE_MYSQL=penetration_testing
+          DB_USERNAME=pentest_user
+          DB_PASSWORD=${{ secrets.DB_PASSWORD || 'pentest_password' }}
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD || 'root_password' }}
+          EOF
+          php artisan key:generate
+
+      - name: Run unit & feature tests
+        run: |
+          php artisan test
+
+  deploy:
+    name: Deploy to VM
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          # If the key doesn't start with standard PEM headers, assume it was base64 encoded
+          # to survive copy-pasting through web terminals!
+          if ! echo "${{ secrets.SSH_PRIVATE_KEY }}" | grep -q "BEGIN"; then
+            echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_rsa
+          else
+            cat << 'EOF' > ~/.ssh/id_rsa
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOF
+          fi
+
+          chmod 600 ~/.ssh/id_rsa
+
+          if [ -n "${{ secrets.SSH_HOST_KEY }}" ]; then
+            echo "${{ secrets.VM_IP }} ${{ secrets.SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H ${{ secrets.VM_IP }} >> ~/.ssh/known_hosts
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Ensure Host Secrets Exist on VM
+        run: |
+          ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} '
+            mkdir -p ~/pentest-tool/secrets
+            cd ~/pentest-tool/secrets
+
+            [ -f ENV.txt ] || echo -n "production" > ENV.txt
+
+            if [ -n "${{ secrets.APP_KEY }}" ]; then
+              echo -n "${{ secrets.APP_KEY }}" > APP_KEY.txt
+            elif [ ! -f APP_KEY.txt ]; then
+              echo -n "base64:$(openssl rand -base64 32)" > APP_KEY.txt
+            fi
+
+            if [ -n "${{ secrets.DB_PASSWORD }}" ]; then
+              echo -n "${{ secrets.DB_PASSWORD }}" > DB_PASSWORD.txt
+            elif [ ! -f DB_PASSWORD.txt ]; then
+              echo -n "$(openssl rand -hex 16)" > DB_PASSWORD.txt
+            fi
+
+            if [ -n "${{ secrets.MYSQL_ROOT_PASSWORD }}" ]; then
+              echo -n "${{ secrets.MYSQL_ROOT_PASSWORD }}" > MYSQL_ROOT_PASSWORD.txt
+            elif [ ! -f MYSQL_ROOT_PASSWORD.txt ]; then
+              echo -n "$(openssl rand -hex 16)" > MYSQL_ROOT_PASSWORD.txt
+            fi
+
+            chmod 644 *.txt
+          '
+
+      - name: Copy stack to VM
+        run: |
+          ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "mkdir -p ~/pentest-tool"
+          tar --exclude='node_modules' --exclude='vendor' --exclude='.git' --exclude='storage/logs/*' --exclude='storage/framework/cache/*' -czf - docker-compose.yml Dockerfile app bootstrap config database docker public resources routes storage tests artisan composer.json composer.lock package.json package-lock.json vite.config.js phpunit.xml .env.example .dockerignore .editorconfig | ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "tar -xzf - -C ~/pentest-tool"
+
+      - name: Restart services via SSH
+        run: |
+          ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "
+            cd ~/pentest-tool &&
+            docker compose down --remove-orphans || true &&
+            docker system prune -af --volumes || true &&
+            docker compose build --no-cache &&
+            docker compose up -d --build
+          "
