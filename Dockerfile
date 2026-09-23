@@ -59,6 +59,11 @@ RUN composer install --optimize-autoloader --no-interaction
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Copy and set entrypoint script
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 EXPOSE 9000
 
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["php-fpm"]
