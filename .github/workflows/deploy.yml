@@ -124,8 +124,31 @@ jobs:
         run: |
           ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "
             cd ~/pentest-tool &&
+            cp .env.example .env &&
+            sed -i 's|^APP_ENV=.*|APP_ENV=production|' .env &&
+            sed -i 's|^APP_DEBUG=.*|APP_DEBUG=false|' .env &&
+            sed -i 's|^APP_URL=.*|APP_URL=http://${{ secrets.VM_IP }}:8081|' .env &&
+            sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env &&
+            sed -i 's|^# DB_HOST=.*|DB_HOST=mysql|' .env &&
+            sed -i 's|^# DB_PORT=.*|DB_PORT=3306|' .env &&
+            sed -i 's|^# DB_DATABASE=.*|DB_DATABASE=penetration_testing|' .env &&
+            sed -i 's|^# DB_USERNAME=.*|DB_USERNAME=pentest_user|' .env &&
+            sed -i 's|^# DB_PASSWORD=.*|DB_PASSWORD=pentest_password|' .env &&
+            APP_KEY_VALUE=\$(openssl rand -base64 32) &&
+            sed -i \"s|^APP_KEY=.*|APP_KEY=base64:\${APP_KEY_VALUE}|\" .env &&
             docker compose down --remove-orphans || true &&
             docker system prune -af --volumes || true &&
             docker compose build --no-cache &&
             docker compose up -d --build
+          "
+
+      - name: Install dependencies & setup Laravel
+        run: |
+          ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "
+            cd ~/pentest-tool &&
+            docker compose exec -T app composer install --optimize-autoloader --no-interaction &&
+            docker compose exec -T app php artisan key:generate --force &&
+            docker compose exec -T app php artisan migrate --force &&
+            docker compose exec -T app php artisan storage:link || true &&
+            docker compose exec -T app chown -R www-data:www-data storage bootstrap/cache
           "
