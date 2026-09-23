@@ -115,6 +115,11 @@ jobs:
             chmod 644 *.txt
           '
 
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+
       - name: Copy stack to VM
         run: |
           ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "mkdir -p ~/pentest-tool"
