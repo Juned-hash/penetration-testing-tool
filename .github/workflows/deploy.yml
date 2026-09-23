@@ -33,7 +33,6 @@ jobs:
           cat << 'EOF' >> .env
           APP_ENV=testing
           APP_DEBUG=true
-          APP_KEY=base64:$(php -r "echo base64_encode(random_bytes(32));")
           DB_CONNECTION=sqlite
           DB_DATABASE=:memory:
           CACHE_STORE=array
@@ -45,8 +44,8 @@ jobs:
           DB_PORT=3306
           DB_DATABASE_MYSQL=penetration_testing
           DB_USERNAME=pentest_user
-          DB_PASSWORD=${{ secrets.DB_PASSWORD || 'pentest_password' }}
-          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD || 'root_password' }}
+          DB_PASSWORD="${{ secrets.DB_PASSWORD || 'pentest_password' }}"
+          MYSQL_ROOT_PASSWORD="${{ secrets.MYSQL_ROOT_PASSWORD || 'root_password' }}"
           EOF
           php artisan key:generate
 
