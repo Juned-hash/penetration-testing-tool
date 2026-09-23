@@ -1,0 +1,15 @@
+.env
+.git
+.gitignore
+.github
+node_modules
+vendor
+storage/logs/*
+storage/app/zap/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+.phpunit.result.cache
+scratch
+docker-compose.yml
+Dockerfile

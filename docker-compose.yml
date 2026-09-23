@@ -1,0 +1,125 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pentest_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: penetration_testing
+      DB_USERNAME: pentest_user
+      DB_PASSWORD: pentest_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_CLIENT: phpredis
+      QUEUE_CONNECTION: redis
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pentest_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: pentest_nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - pentest_network
+
+  mysql:
+    image: mysql:8.0
+    container_name: pentest_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: penetration_testing
+      MYSQL_USER: pentest_user
+      MYSQL_PASSWORD: pentest_password
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "33066:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pentest_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: pentest_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - pentest_network
+
+  queue_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pentest_queue_worker
+    restart: unless-stopped
+    command: php artisan queue:work redis --tries=3 --timeout=3900 --sleep=3
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: penetration_testing
+      DB_USERNAME: pentest_user
+      DB_PASSWORD: pentest_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_CLIENT: phpredis
+      QUEUE_CONNECTION: redis
+      HOST_PROJECT_PATH: ${HOST_PROJECT_PATH:-${PWD}}
+      QUEUE_WORKER_TIMEOUT: ${QUEUE_WORKER_TIMEOUT:-3900}
+      REDIS_QUEUE_RETRY_AFTER: ${REDIS_QUEUE_RETRY_AFTER:-4200}
+      ZAP_TIMEOUT: ${ZAP_TIMEOUT:-3600}
+      ZAP_ACTIVE_SCAN_MAX_DURATION: ${ZAP_ACTIVE_SCAN_MAX_DURATION:-20}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pentest_network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  pentest_network:
+    driver: bridge
