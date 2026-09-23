@@ -8,6 +8,7 @@ services:
     working_dir: /var/www/html
     volumes:
       - .:/var/www/html
+      - /var/www/html/vendor
     environment:
       APP_ENV: local
       APP_DEBUG: "true"
@@ -87,6 +88,7 @@ services:
     working_dir: /var/www/html
     volumes:
       - .:/var/www/html
+      - /var/www/html/vendor
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:

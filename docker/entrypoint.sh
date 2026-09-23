@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
+export COMPOSER_ALLOW_SUPERUSER=1
+
 # Install dependencies if vendor directory is missing
-if [ ! -f "vendor/autoload.php" ]; then
+if [ ! -f "/var/www/html/vendor/autoload.php" ]; then
     echo "Installing Composer dependencies..."
     composer install --no-interaction --optimize-autoloader
 fi
