@@ -14,11 +14,22 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         User::firstOrCreate(
-            ['email' => 'admin@example.com'],
+            ['email' => 'admin@soapbox.cloud'],
+            [
+                'name' => 'Admin User',
+                'password' => \Illuminate\Support\Facades\Hash::make('Admin@0147'),
+                'email_verified_at' => now(),
+                'role' => 'admin',
+            ]
+        );
+
+        User::firstOrCreate(
+            ['email' => 'tester@soapbox.cloud'],
             [
                 'name' => 'Security Tester',
-                'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+                'password' => \Illuminate\Support\Facades\Hash::make('Tester@0147'),
                 'email_verified_at' => now(),
+                'role' => 'tester',
             ]
         );
     }

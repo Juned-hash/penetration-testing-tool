@@ -153,6 +153,7 @@ jobs:
             cd ~/pentest-tool &&
             docker compose exec -T app composer install --optimize-autoloader --no-interaction &&
             docker compose exec -T app php artisan migrate --force &&
+            docker compose exec -T app php artisan db:seed --force || true &&
             docker compose exec -T app php artisan storage:link || true &&
             docker compose exec -T app chown -R www-data:www-data storage bootstrap/cache
           "

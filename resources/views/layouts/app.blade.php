@@ -42,6 +42,14 @@
                         <span>Settings</span>
                     </a>
                 </li>
+                @if (Auth::user()?->isAdmin())
+                <li>
+                    <a href="{{ route('users.index') }}" class="nav-link {{ request()->routeIs('users.*') ? 'active' : '' }}">
+                        <i class="bi bi-people"></i>
+                        <span>User Management</span>
+                    </a>
+                </li>
+                @endif
             </ul>
             <div class="p-3 border-top border-secondary">
                 <div class="d-flex align-items-center gap-2">
@@ -49,7 +57,10 @@
                         <i class="bi bi-person"></i>
                     </div>
                     <div class="small text-truncate me-auto">
-                        <div class="fw-bold">{{ Auth::user()->name }}</div>
+                        <div class="fw-bold d-flex align-items-center gap-1">
+                            {{ Auth::user()->name }}
+                            <span class="badge bg-{{ Auth::user()->isAdmin() ? 'danger' : 'info' }}" style="font-size: 0.65rem;">{{ strtoupper(Auth::user()->role) }}</span>
+                        </div>
                         <div class="text-muted" style="font-size: 0.75rem;">{{ Auth::user()->email }}</div>
                     </div>
                     <form method="POST" action="{{ route('logout') }}">
