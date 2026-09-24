@@ -93,12 +93,6 @@ class ZapService
             if (!File::exists($hostYamlPath)) {
                 throw new \Exception('Failed to write ZAP Automation Framework YAML file.');
             }
-        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-            $err = 'Assessment execution failure: Unable to decrypt stored authentication credentials. Please re-enter and save the credentials for this assessment.';
-            $this->scanService->updateStatus($scan, 'failed', $err);
-            $scan->update(['failure_reason' => $err]);
-            return false;
-        }
 
             // 2. Stage 2: Running
             $this->scanService->updateStatus($scan, 'running', 'Starting OWASP ZAP Docker assessment.');
@@ -173,10 +167,10 @@ class ZapService
             }
 
             return true;
-        } catch (Throwable $e) {
-            $errText = 'Assessment execution failure: ' . $this->sanitizeError($e->getMessage());
-            $this->scanService->updateStatus($scan, 'failed', $errText);
-            $scan->update(['failure_reason' => $errText]);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            $err = 'Assessment execution failure: Unable to decrypt stored authentication credentials. Please re-enter and save the credentials for this assessment.';
+            $this->scanService->updateStatus($scan, 'failed', $err);
+            $scan->update(['failure_reason' => $err]);
             return false;
         }
     }
