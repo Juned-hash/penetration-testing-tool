@@ -18,7 +18,7 @@ return new class extends Migration
 
         // Ensure any existing administrative accounts retain admin access
         DB::table('users')
-            ->where('email', 'admin@example.com')
+            ->whereIn('email', ['admin@soapbox.cloud', 'admin@example.com'])
             ->update(['role' => 'admin']);
     }
 
