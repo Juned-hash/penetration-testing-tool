@@ -9,7 +9,6 @@ use App\Models\ScanConfiguration;
 use App\Models\ScanLog;
 use App\Models\ScanScope;
 use App\Models\User;
-use App\Services\Zap\ZapRunner;
 use Illuminate\Support\Facades\DB;
 
 class ScanService
@@ -186,15 +185,11 @@ class ScanService
             'completed_at' => now(),
         ]);
 
-        // Terminate and remove active Docker container if execution is running
-        $containerName = "pentest-zap-scan-{$scan->id}";
-        app(ZapRunner::class)->stopContainer($containerName);
-
         ScanLog::create([
             'scan_id' => $scan->id,
             'level' => 'warning',
             'phase' => 'cancelled',
-            'message' => 'Assessment explicitly cancelled by user. Stopped container if active.',
+            'message' => 'Assessment explicitly cancelled by user.',
         ]);
 
         return true;

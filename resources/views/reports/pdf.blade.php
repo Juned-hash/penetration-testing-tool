@@ -118,13 +118,6 @@
         }
     </style>
 </head>
-@php
-    $logoPath = public_path('images/logo.webp');
-    $logoBase64 = '';
-    if (file_exists($logoPath)) {
-        $logoBase64 = 'data:image/webp;base64,' . base64_encode(file_get_contents($logoPath));
-    }
-@endphp
 <body>
     <div class="footer">
         Confidential - Authorized Security Assessment Report | Target: {{ $scan->target_url }}
@@ -132,9 +125,13 @@
 
     <!-- 1. COVER -->
     <div class="cover page-break">
-        @if (!empty($logoBase64))
-            <div style="margin-bottom: 20pt;">
-                <img src="{{ $logoBase64 }}" style="max-height: 60pt; max-width: 250pt;" alt="Logo">
+        @php
+            $logoPath = public_path('images/logo.png');
+            $logoData = file_exists($logoPath) ? base64_encode(file_get_contents($logoPath)) : null;
+        @endphp
+        @if ($logoData)
+            <div style="margin-bottom: 25pt;">
+                <img src="data:image/png;base64,{{ $logoData }}" alt="Logo" style="max-height: 60px;">
             </div>
         @endif
         <div class="cover-title">SECURITY ASSESSMENT REPORT</div>

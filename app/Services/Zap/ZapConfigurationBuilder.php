@@ -156,7 +156,7 @@ class ZapConfigurationBuilder
                 ],
             ];
             if ($maxDuration > 0) {
-                $activeScanJob['parameters']['maxDuration'] = $maxDuration;
+                $activeScanJob['parameters']['maxScanDurationInMins'] = $maxDuration;
             }
             if (!empty($users)) {
                 $activeScanJob['parameters']['user'] = 'AssessmentUser';

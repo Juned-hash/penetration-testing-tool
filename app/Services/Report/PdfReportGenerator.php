@@ -31,8 +31,8 @@ class PdfReportGenerator implements ReportGeneratorInterface
         $reportsDir = storage_path('app/reports');
         File::ensureDirectoryExists($reportsDir);
 
-        $safeAppName = \Illuminate\Support\Str::slug($scan->name, '_') ?: 'Assessment';
-        $filename = 'report_' . $safeAppName . '_scan_' . $scan->id . '_' . time() . '.pdf';
+        $safeName = \Illuminate\Support\Str::slug($scan->name, '_') ?: 'app';
+        $filename = 'report_' . $safeName . '_' . $scan->id . '_' . time() . '.pdf';
         $fullPath = $reportsDir . '/' . $filename;
         $relativePath = 'reports/' . $filename;
 
