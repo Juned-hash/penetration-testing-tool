@@ -14,8 +14,7 @@
         <!-- Sidebar Navigation -->
         <div id="sidebar" class="d-flex flex-column flex-shrink-0 p-0 text-white">
             <div class="brand-title d-flex align-items-center gap-2">
-                <i class="bi bi-shield-check text-primary fs-4"></i>
-                <span>SecPlatform</span>
+                <img src="{{ asset('images/logo.webp') }}" alt="Logo" class="img-fluid" style="max-height: 40px;">
             </div>
             <ul class="nav nav-pills flex-column mb-auto mt-3">
                 <li class="nav-item">

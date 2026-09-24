@@ -112,6 +112,10 @@ class ZapService
             // Execute container
             $result = $this->runner->runAutomationFramework($hostYamlPath, $workDir, $isLocalTarget, $containerName);
 
+            if ($scan->fresh()->status === 'cancelled') {
+                return false;
+            }
+
             $reportGenerated = File::exists($hostJsonReportPath) && filesize($hostJsonReportPath) > 0;
 
             if ($result['timedOut'] ?? false) {

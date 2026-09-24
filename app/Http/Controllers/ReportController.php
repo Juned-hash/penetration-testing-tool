@@ -77,7 +77,8 @@ class ReportController extends Controller
             }
         }
 
-        $downloadFilename = 'Security_Assessment_Report_Scan_' . $report->scan_id . '.' . $report->type;
+        $safeAppName = \Illuminate\Support\Str::slug($report->scan->name, '_') ?: 'Assessment';
+        $downloadFilename = "{$safeAppName}_Security_Assessment_Report_Scan_{$report->scan_id}.{$report->type}";
 
         return response()->download($fullPath, $downloadFilename, [
             'Content-Type' => 'application/pdf',
