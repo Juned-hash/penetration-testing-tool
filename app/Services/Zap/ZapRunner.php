@@ -65,10 +65,21 @@ class ZapRunner
         $dockerBinary = $this->getDockerBinaryPath();
 
         try {
+            // First check if image exists locally
             $process = new Process([$dockerBinary, 'image', 'inspect', $image]);
             $process->run();
 
-            return $process->isSuccessful();
+            if ($process->isSuccessful()) {
+                return true;
+            }
+
+            // If not available locally, attempt to pull the image automatically
+            $pullTimeout = (int) config('zap.pull_timeout', 600);
+            $pullProcess = new Process([$dockerBinary, 'pull', $image]);
+            $pullProcess->setTimeout($pullTimeout);
+            $pullProcess->run();
+
+            return $pullProcess->isSuccessful();
         } catch (\Throwable $e) {
             return false;
         }

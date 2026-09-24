@@ -28,6 +28,8 @@ return [
 
     'timeout' => (int) env('ZAP_TIMEOUT', 3600),
 
+    'pull_timeout' => (int) env('ZAP_PULL_TIMEOUT', 600),
+
     'active_scan_max_duration' => (int) env('ZAP_ACTIVE_SCAN_MAX_DURATION', 20),
 
     'integration_test' => (bool) env('ZAP_INTEGRATION_TEST', false),
