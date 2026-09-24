@@ -155,6 +155,8 @@ jobs:
             docker compose exec -T app php artisan migrate --force &&
             docker compose exec -T app php artisan queue:clear redis || true &&
             docker compose exec -T app php artisan tinker --execute=\"DB::statement('SET FOREIGN_KEY_CHECKS=0;'); \App\Models\Report::truncate(); \App\Models\Finding::truncate(); \App\Models\ScanLog::truncate(); \App\Models\AuthenticationConfiguration::truncate(); \App\Models\ScanScope::truncate(); \App\Models\ScanConfiguration::truncate(); \App\Models\Scan::truncate(); DB::statement('SET FOREIGN_KEY_CHECKS=1;');\" || true &&
+            docker compose exec -T app rm -rf /var/www/html/storage/app/zap/* || true &&
+            docker rm -f \$(docker ps -a -q --filter name=pentest-zap-scan) || true &&
             docker compose exec -T app php artisan storage:link || true &&
             docker compose exec -T app chown -R www-data:www-data storage bootstrap/cache
           "

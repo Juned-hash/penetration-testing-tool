@@ -263,6 +263,12 @@ class ZapRunner
         }
 
         $yamlFilename = basename($yamlFilePath);
+
+        // Pre-clean any leftover container with the same name to prevent Docker name conflict error
+        if (!empty($containerName)) {
+            $this->stopContainer($containerName);
+        }
+
         $command = $this->buildDockerCommand($hostWorkDir, $yamlFilename, $dockerImage, $isLocalTarget, $containerName);
 
         try {
