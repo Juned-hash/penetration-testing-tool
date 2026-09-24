@@ -139,8 +139,8 @@ jobs:
             sed -i 's|^# DB_DATABASE=.*|DB_DATABASE=penetration_testing|' .env &&
             sed -i 's|^# DB_USERNAME=.*|DB_USERNAME=pentest_user|' .env &&
             sed -i 's|^# DB_PASSWORD=.*|DB_PASSWORD=pentest_password|' .env &&
-            APP_KEY_VALUE=\$(openssl rand -base64 32) &&
-            sed -i \"s|^APP_KEY=.*|APP_KEY=base64:\${APP_KEY_VALUE}|\" .env &&
+            APP_KEY_VALUE=\$(cat ~/pentest-tool/secrets/APP_KEY.txt 2>/dev/null || echo -n \"base64:\$(openssl rand -base64 32)\") &&
+            sed -i \"s|^APP_KEY=.*|APP_KEY=\${APP_KEY_VALUE}|\" .env &&
             docker compose down --remove-orphans || true &&
             docker system prune -af --volumes || true &&
             docker compose build --no-cache &&
@@ -152,7 +152,6 @@ jobs:
           ssh ${DEPLOY_USER}@${{ secrets.VM_IP }} "
             cd ~/pentest-tool &&
             docker compose exec -T app composer install --optimize-autoloader --no-interaction &&
-            docker compose exec -T app php artisan key:generate --force &&
             docker compose exec -T app php artisan migrate --force &&
             docker compose exec -T app php artisan storage:link || true &&
             docker compose exec -T app chown -R www-data:www-data storage bootstrap/cache
