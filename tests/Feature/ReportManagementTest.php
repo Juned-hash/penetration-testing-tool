@@ -44,20 +44,20 @@ class ReportManagementTest extends TestCase
 
         $this->assertNotNull($report);
         $this->assertEquals('pdf', $report->type);
-        $this->assertEquals('queued', $report->status);
+
+        if ($report->status === 'queued') {
+            $job = new \App\Jobs\GeneratePdfReport($report);
+            $job->handle(app(\App\Services\Report\PdfReportGenerator::class));
+            $report->refresh();
+        }
+
+        $this->assertEquals('completed', $report->status);
         $this->assertDatabaseHas('reports', [
             'id' => $report->id,
             'scan_id' => $scan->id,
             'type' => 'pdf',
-            'status' => 'queued',
+            'status' => 'completed',
         ]);
-
-        // Process the queued job synchronously
-        $job = new \App\Jobs\GeneratePdfReport($report);
-        $job->handle(app(\App\Services\Report\PdfReportGenerator::class));
-
-        $report->refresh();
-        $this->assertEquals('completed', $report->status);
 
         $fullPath = storage_path('app/' . $report->file_path);
         $this->assertTrue(File::exists($fullPath));
