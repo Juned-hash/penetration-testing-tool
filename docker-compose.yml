@@ -12,6 +12,8 @@ services:
       - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
     environment:
       APP_ENV: local
+      APP_TIMEZONE: Asia/Kolkata
+      TZ: Asia/Kolkata
       APP_DEBUG: "true"
       APP_URL: http://localhost:8081
       DB_CONNECTION: mysql
@@ -95,6 +97,8 @@ services:
 
     environment:
       APP_ENV: local
+      APP_TIMEZONE: Asia/Kolkata
+      TZ: Asia/Kolkata
       APP_DEBUG: "true"
       APP_URL: http://localhost:8080
       DB_CONNECTION: mysql

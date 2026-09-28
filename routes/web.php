@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/scans/{scan}/status', [ScanController::class, 'status'])->name('scans.status');
     Route::post('/scans/{scan}/confirm-authorization', [ScanController::class, 'confirmAuthorization'])->name('scans.confirm-authorization');
     Route::post('/scans/{scan}/start', [ScanController::class, 'start'])->name('scans.start');
+    Route::post('/scans/{scan}/rerun', [ScanController::class, 'rerun'])->name('scans.rerun');
 
     // Finding Routes
     Route::get('/scans/{scan}/findings', [\App\Http\Controllers\FindingController::class, 'index'])->name('scans.findings.index');

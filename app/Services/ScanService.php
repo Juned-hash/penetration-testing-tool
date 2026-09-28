@@ -226,4 +226,93 @@ class ScanService
             ]);
         }
     }
+
+    /**
+     * Rerun an existing assessment by creating a new scan record with copied configuration.
+     *
+     * @param User $user
+     * @param Scan $originalScan
+     * @return Scan
+     */
+    public function rerunAssessment(User $user, Scan $originalScan): Scan
+    {
+        if (!in_array($originalScan->status, ['completed', 'failed', 'cancelled'])) {
+            throw new \InvalidArgumentException('Only completed, failed, or cancelled assessments can be rerun.');
+        }
+
+        return DB::transaction(function () use ($user, $originalScan) {
+            $originalScan->loadMissing(['scanConfiguration', 'scanScopes', 'authenticationConfiguration']);
+
+            // 1. Create a new Scan record referencing the parent assessment
+            $newScan = Scan::create([
+                'user_id' => $user->id,
+                'parent_assessment_id' => $originalScan->id,
+                'name' => $originalScan->name,
+                'target_url' => $originalScan->target_url,
+                'environment' => $originalScan->environment,
+                'status' => 'queued',
+                'authorization_confirmed_at' => now(),
+            ]);
+
+            // 2. Copy ScanConfiguration
+            $origConfig = $originalScan->scanConfiguration;
+            ScanConfiguration::create([
+                'scan_id' => $newScan->id,
+                'spider_enabled' => $origConfig->spider_enabled ?? true,
+                'ajax_spider_enabled' => $origConfig->ajax_spider_enabled ?? false,
+                'passive_scan_enabled' => $origConfig->passive_scan_enabled ?? true,
+                'active_scan_enabled' => $origConfig->active_scan_enabled ?? true,
+                'authentication_enabled' => $origConfig->authentication_enabled ?? false,
+            ]);
+
+            // 3. Copy ScanScope entries
+            foreach ($originalScan->scanScopes as $scope) {
+                ScanScope::create([
+                    'scan_id' => $newScan->id,
+                    'type' => $scope->type,
+                    'path' => $scope->path,
+                ]);
+            }
+
+            // 4. Copy AuthenticationConfiguration
+            $origAuth = $originalScan->authenticationConfiguration;
+            if ($origAuth) {
+                AuthenticationConfiguration::create([
+                    'scan_id' => $newScan->id,
+                    'mode' => $origAuth->mode,
+                    'login_url' => $origAuth->login_url,
+                    'username_field' => $origAuth->username_field,
+                    'password_field' => $origAuth->password_field,
+                    'username' => $origAuth->username,
+                    'password' => $origAuth->password,
+                    'token_name' => $origAuth->token_name,
+                    'token_value' => $origAuth->token_value,
+                    'login_button_selector' => $origAuth->login_button_selector,
+                    'logged_in_indicator' => $origAuth->logged_in_indicator,
+                    'logged_out_indicator' => $origAuth->logged_out_indicator,
+                    'authenticated_url' => $origAuth->authenticated_url,
+                ]);
+            }
+
+            // 5. Audit logs for both new and original assessment
+            ScanLog::create([
+                'scan_id' => $newScan->id,
+                'level' => 'info',
+                'phase' => 'queued',
+                'message' => "ASSESSMENT_RERUN_REQUESTED: Initialized as rerun of Assessment #{$originalScan->id}.",
+            ]);
+
+            ScanLog::create([
+                'scan_id' => $originalScan->id,
+                'level' => 'info',
+                'phase' => 'rerun',
+                'message' => "Rerun triggered by user '{$user->name}' (ID: {$user->id}). Created child Assessment #{$newScan->id}.",
+            ]);
+
+            // 6. Dispatch execution job for the new assessment
+            RunAssessment::dispatch($newScan)->onQueue('assessments');
+
+            return $newScan;
+        });
+    }
 }

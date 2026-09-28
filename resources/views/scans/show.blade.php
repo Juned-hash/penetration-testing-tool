@@ -181,7 +181,7 @@
                                 </a>
                                 <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm w-100 mb-2">
                                         <i class="bi bi-arrow-clockwise me-1"></i> Regenerate PDF
                                     </button>
                                 </form>
@@ -192,18 +192,27 @@
                                 </div>
                                 <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-outline-danger w-100 fw-bold py-2">
+                                    <button type="submit" class="btn btn-outline-danger w-100 fw-bold py-2 mb-2">
                                         <i class="bi bi-arrow-clockwise me-1"></i> Retry PDF Report
                                     </button>
                                 </form>
                             @else
                                 <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-outline-primary w-100 fw-bold py-2">
+                                    <button type="submit" class="btn btn-outline-primary w-100 fw-bold py-2 mb-2">
                                         <i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF Report
                                     </button>
                                 </form>
                             @endif
+                        @endif
+
+                        @if (in_array($scan->status, ['completed', 'failed', 'cancelled']))
+                            <form method="POST" action="{{ route('scans.rerun', $scan) }}" onsubmit="return confirm('Rerun this assessment?\n\nA new assessment will be created using the same configuration. The existing assessment and its findings will remain unchanged.');">
+                                @csrf
+                                <button type="submit" class="btn btn-warning w-100 fw-bold py-2">
+                                    <i class="bi bi-arrow-repeat me-1"></i> Rerun Assessment
+                                </button>
+                            </form>
                         @endif
                     @endif
                 @else
@@ -226,6 +235,43 @@
                 @endif
             </div>
         </div>
+
+        @if ($scan->parentScan)
+            <!-- Parent Assessment Link Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-0">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-diagram-2 me-1"></i> Lineage</h6>
+                </div>
+                <div class="card-body pt-0 small">
+                    <div class="text-muted mb-1">Rerun of parent assessment:</div>
+                    <a href="{{ route('scans.show', $scan->parentScan) }}" class="fw-bold text-decoration-none d-block">
+                        <i class="bi bi-arrow-return-right me-1"></i> Assessment #{{ $scan->parentScan->id }} ({{ $scan->parentScan->name }})
+                    </a>
+                </div>
+            </div>
+        @endif
+
+        @if ($scan->reruns->isNotEmpty())
+            <!-- Child Reruns History Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-0">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-clock-history me-1"></i> Rerun History ({{ $scan->reruns->count() }})</h6>
+                </div>
+                <div class="card-body pt-0">
+                    <div class="list-group list-group-flush small">
+                        @foreach ($scan->reruns as $rerun)
+                            <a href="{{ route('scans.show', $rerun) }}" class="list-group-item list-group-item-action d-flex align-items-center justify-content-between px-0">
+                                <div>
+                                    <span class="fw-semibold">Assessment #{{ $rerun->id }}</span>
+                                    <div class="text-muted small">{{ $rerun->created_at->format('M d, Y H:i') }}</div>
+                                </div>
+                                <x-status-badge :status="$rerun->status" />
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <!-- Scan Metadata Card -->
         <div class="card border-0 shadow-sm">

@@ -11,6 +11,7 @@ class Scan extends Model
 {
     protected $fillable = [
         'user_id',
+        'parent_assessment_id',
         'name',
         'target_url',
         'environment',
@@ -30,6 +31,16 @@ class Scan extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function parentScan(): BelongsTo
+    {
+        return $this->belongsTo(Scan::class, 'parent_assessment_id');
+    }
+
+    public function reruns(): HasMany
+    {
+        return $this->hasMany(Scan::class, 'parent_assessment_id');
     }
 
     public function scanConfiguration(): HasOne

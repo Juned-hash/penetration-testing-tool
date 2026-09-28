@@ -226,19 +226,19 @@
         </tr>
         <tr>
             <th>Creation Date</th>
-            <td>{{ $scan->created_at->format('M d, Y H:i:s') }}</td>
+            <td>{{ $scan->created_at->format('M d, Y H:i:s T') }}</td>
         </tr>
         <tr>
             <th>Started Date</th>
-            <td>{{ $scan->started_at ? $scan->started_at->format('M d, Y H:i:s') : 'N/A' }}</td>
+            <td>{{ $scan->started_at ? $scan->started_at->format('M d, Y H:i:s T') : 'N/A' }}</td>
         </tr>
         <tr>
             <th>Completion Date</th>
-            <td>{{ $scan->completed_at ? $scan->completed_at->format('M d, Y H:i:s') : 'N/A' }}</td>
+            <td>{{ $scan->completed_at ? $scan->completed_at->format('M d, Y H:i:s T') : 'N/A' }}</td>
         </tr>
         <tr>
             <th>Explicit Authorization Date</th>
-            <td>{{ $scan->authorization_confirmed_at ? $scan->authorization_confirmed_at->format('M d, Y H:i:s') : 'N/A' }}</td>
+            <td>{{ $scan->authorization_confirmed_at ? $scan->authorization_confirmed_at->format('M d, Y H:i:s T') : 'N/A' }}</td>
         </tr>
     </table>
 

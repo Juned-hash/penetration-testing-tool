@@ -93,6 +93,25 @@ class ScanController extends Controller
     }
 
 
+    public function rerun(Request $request, Scan $scan): RedirectResponse
+    {
+        if ($scan->user_id !== $request->user()->id) {
+            abort(403);
+        }
+
+        if (!in_array($scan->status, ['completed', 'failed', 'cancelled'])) {
+            return redirect()
+                ->route('scans.show', $scan)
+                ->with('error', 'Only completed, failed, or cancelled assessments can be rerun.');
+        }
+
+        $newScan = $this->scanService->rerunAssessment($request->user(), $scan);
+
+        return redirect()
+            ->route('scans.show', $newScan)
+            ->with('success', "Assessment rerun initialized as Assessment #{$newScan->id} and queued for execution.");
+    }
+
     public function status(Request $request, Scan $scan): JsonResponse
     {
         if ($scan->user_id !== $request->user()->id) {
