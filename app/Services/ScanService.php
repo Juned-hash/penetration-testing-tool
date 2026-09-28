@@ -163,7 +163,7 @@ class ScanService
             'message' => 'Assessment queued for background job dispatch.',
         ]);
 
-        RunAssessment::dispatch($scan);
+        RunAssessment::dispatch($scan)->onQueue('assessments');
 
         return true;
     }

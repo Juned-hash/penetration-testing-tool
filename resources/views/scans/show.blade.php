@@ -123,7 +123,7 @@
                     <div class="bg-dark text-light p-3 rounded font-monospace small" style="max-height: 250px; overflow-y: auto;">
                         @foreach ($scan->logs as $log)
                             <div class="mb-1">
-                                <span class="text-muted">[{{ $log->created_at->format('H:i:s') }}]</span>
+                                <span class="text-white">[{{ $log->created_at->format('H:i:s') }}]</span>
                                 <span class="badge bg-secondary me-1">{{ strtoupper($log->phase) }}</span>
                                 <span>{{ $log->message }}</span>
                             </div>
@@ -159,22 +159,52 @@
                         <div class="alert alert-primary border-primary small mb-3">
                             <i class="bi bi-arrow-repeat me-1 spin"></i> Assessment job actively processing...
                         </div>
-                        <form method="POST" action="{{ route('scans.cancel', $scan) }}">
-                            @csrf
-                            <button type="submit" class="btn btn-outline-danger w-100 fw-bold py-2">
-                                <i class="bi bi-x-circle me-1"></i> Cancel Assessment
-                            </button>
-                        </form>
                     @else
                         <div class="badge bg-secondary w-100 py-2 fs-6 mb-3">
                             Status: {{ ucfirst($scan->status) }}
                         </div>
-                        <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
-                            @csrf
-                            <button type="submit" class="btn btn-outline-primary w-100 fw-bold py-2">
-                                <i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF Report
-                            </button>
-                        </form>
+                        @if ($scan->status === 'completed')
+                            @php
+                                $latestReport = $scan->reports()->latest()->first();
+                            @endphp
+
+                            @if ($latestReport && in_array($latestReport->status, ['queued', 'generating']))
+                                <div class="alert alert-info border-info small mb-3" id="pdf-status-alert">
+                                    <i class="bi bi-arrow-repeat spin me-1"></i> PDF report is being generated in the background...
+                                </div>
+                                <button type="button" class="btn btn-secondary w-100 fw-bold py-2 mb-2" disabled>
+                                    <i class="bi bi-hourglass-split me-1"></i> PDF Generating...
+                                </button>
+                            @elseif ($latestReport && $latestReport->status === 'completed')
+                                <a href="{{ route('reports.download', $latestReport) }}" class="btn btn-success w-100 fw-bold py-2 mb-2">
+                                    <i class="bi bi-download me-1"></i> Download PDF Report
+                                </a>
+                                <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Regenerate PDF
+                                    </button>
+                                </form>
+                            @elseif ($latestReport && $latestReport->status === 'failed')
+                                <div class="alert alert-danger border-danger small mb-3">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i> PDF Generation Failed:<br>
+                                    <span class="small font-monospace">{{ $latestReport->error_message }}</span>
+                                </div>
+                                <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-danger w-100 fw-bold py-2">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Retry PDF Report
+                                    </button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('scans.reports.pdf', $scan) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-primary w-100 fw-bold py-2">
+                                        <i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF Report
+                                    </button>
+                                </form>
+                            @endif
+                        @endif
                     @endif
                 @else
                     <div class="alert alert-danger border-danger small mb-3">
@@ -219,4 +249,22 @@
         </div>
     </div>
 </div>
+
+@if ($scan->status === 'completed' && isset($latestReport) && in_array($latestReport->status, ['queued', 'generating']))
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const interval = setInterval(function () {
+            fetch("{{ route('scans.status', $scan) }}")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.latest_report && ['completed', 'failed'].includes(data.latest_report.status)) {
+                        clearInterval(interval);
+                        window.location.reload();
+                    }
+                })
+                .catch(() => {});
+        }, 4000);
+    });
+</script>
+@endif
 @endsection

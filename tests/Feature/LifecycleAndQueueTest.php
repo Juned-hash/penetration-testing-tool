@@ -60,44 +60,49 @@ class LifecycleAndQueueTest extends TestCase
         Queue::assertNotPushed(RunAssessment::class);
     }
 
-    public function test_user_can_cancel_active_or_queued_assessment(): void
+    public function test_cancel_route_is_no_longer_available(): void
     {
         $user = User::factory()->create();
 
         $scan = Scan::create([
             'user_id' => $user->id,
-            'name' => 'Cancellable Scan',
-            'target_url' => 'https://target.example.com',
-            'environment' => 'staging',
-            'status' => 'queued',
-            'authorization_confirmed_at' => now(),
-        ]);
-
-        $response = $this->actingAs($user)->post("/scans/{$scan->id}/cancel");
-
-        $response->assertRedirect(route('scans.show', $scan));
-        $this->assertEquals('cancelled', $scan->fresh()->status);
-        $this->assertNotNull($scan->fresh()->completed_at);
-    }
-
-    public function test_unauthorized_user_cannot_cancel_another_users_assessment(): void
-    {
-        $user1 = User::factory()->create();
-        $user2 = User::factory()->create();
-
-        $scan = Scan::create([
-            'user_id' => $user1->id,
-            'name' => 'User 1 Scan',
+            'name' => 'Scan Test',
             'target_url' => 'https://target.example.com',
             'environment' => 'staging',
             'status' => 'running',
             'authorization_confirmed_at' => now(),
         ]);
 
-        $response = $this->actingAs($user2)->post("/scans/{$scan->id}/cancel");
+        $response = $this->actingAs($user)->post("/scans/{$scan->id}/cancel");
+
+        $response->assertStatus(404);
+        $this->assertEquals('running', $scan->fresh()->status);
+    }
+
+    public function test_admin_can_trigger_queue_worker_restart(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->post('/settings/queue/restart');
+
+        $response->assertRedirect(route('settings.index'));
+        $response->assertSessionHas('success', 'Queue worker restart signal transmitted successfully.');
+    }
+
+    public function test_tester_cannot_trigger_queue_worker_restart_and_receives_403(): void
+    {
+        $tester = User::factory()->create(['role' => 'tester']);
+
+        $response = $this->actingAs($tester)->post('/settings/queue/restart');
 
         $response->assertStatus(403);
-        $this->assertEquals('running', $scan->fresh()->status);
+    }
+
+    public function test_unauthenticated_user_cannot_trigger_queue_worker_restart(): void
+    {
+        $response = $this->post('/settings/queue/restart');
+
+        $response->assertRedirect(route('login'));
     }
 
     public function test_status_endpoint_returns_json_response(): void

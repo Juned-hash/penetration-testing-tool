@@ -35,7 +35,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/scans/{scan}/status', [ScanController::class, 'status'])->name('scans.status');
     Route::post('/scans/{scan}/confirm-authorization', [ScanController::class, 'confirmAuthorization'])->name('scans.confirm-authorization');
     Route::post('/scans/{scan}/start', [ScanController::class, 'start'])->name('scans.start');
-    Route::post('/scans/{scan}/cancel', [ScanController::class, 'cancel'])->name('scans.cancel');
 
     // Finding Routes
     Route::get('/scans/{scan}/findings', [\App\Http\Controllers\FindingController::class, 'index'])->name('scans.findings.index');
@@ -47,8 +46,10 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
 
-    // Admin-Only User Management Routes
+    // Admin-Only Routes
     Route::middleware('admin')->group(function () {
+        Route::post('/settings/queue/restart', [SettingsController::class, 'restartQueue'])->name('settings.queue.restart');
+
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');

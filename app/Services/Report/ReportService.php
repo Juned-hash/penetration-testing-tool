@@ -17,26 +17,42 @@ class ReportService
      * @param string $format
      * @return Report
      */
+    /**
+     * Queue an assessment report generation job asynchronously.
+     *
+     * @param Scan $scan
+     * @param string $format
+     * @return Report
+     */
     public function generateReport(Scan $scan, string $format = 'pdf'): Report
     {
-        $generator = $this->resolveGenerator($format);
+        $format = strtolower($format);
 
-        $filePath = $generator->generate($scan);
+        // Prevent duplicate generation if a report for this scan is currently queued or generating
+        $existingPendingReport = Report::where('scan_id', $scan->id)
+            ->where('type', $format)
+            ->whereIn('status', ['queued', 'generating'])
+            ->first();
+
+        if ($existingPendingReport) {
+            return $existingPendingReport;
+        }
 
         $report = Report::create([
             'scan_id' => $scan->id,
-            'type' => strtolower($format),
-            'file_path' => $filePath,
-            'status' => 'completed',
-            'generated_at' => now(),
+            'type' => $format,
+            'file_path' => '',
+            'status' => 'queued',
         ]);
 
         ScanLog::create([
             'scan_id' => $scan->id,
             'level' => 'info',
             'phase' => 'generating_report',
-            'message' => 'Generated ' . strtoupper($format) . ' security assessment report.',
+            'message' => 'Queued ' . strtoupper($format) . ' security assessment report generation job.',
         ]);
+
+        \App\Jobs\GeneratePdfReport::dispatch($report)->onQueue('reports');
 
         return $report;
     }

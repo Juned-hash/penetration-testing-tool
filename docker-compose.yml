@@ -9,6 +9,7 @@ services:
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
+      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
     environment:
       APP_ENV: local
       APP_DEBUG: "true"
@@ -84,12 +85,13 @@ services:
       dockerfile: Dockerfile
     container_name: pentest_queue_worker
     restart: unless-stopped
-    command: php artisan queue:work redis --tries=3 --timeout=3900 --sleep=3
+    command: php artisan queue:work redis --queue=assessments,reports,default --tries=3 --timeout=3900 --sleep=3
     working_dir: /var/www/html
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
 
     environment:
       APP_ENV: local

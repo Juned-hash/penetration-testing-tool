@@ -92,30 +92,14 @@ class ScanController extends Controller
             ->with('success', 'Assessment job dispatched to queue.');
     }
 
-    public function cancel(Request $request, Scan $scan): RedirectResponse
-    {
-        if ($scan->user_id !== $request->user()->id) {
-            abort(403);
-        }
-
-        $cancelled = $this->scanService->cancelAssessment($scan);
-
-        if (!$cancelled) {
-            return redirect()
-                ->route('scans.show', $scan)
-                ->with('error', 'Assessment is already finished or cannot be cancelled.');
-        }
-
-        return redirect()
-            ->route('scans.show', $scan)
-            ->with('success', 'Assessment status set to cancelled.');
-    }
 
     public function status(Request $request, Scan $scan): JsonResponse
     {
         if ($scan->user_id !== $request->user()->id) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
+
+        $latestReport = $scan->reports()->latest()->first();
 
         return response()->json([
             'id' => $scan->id,
@@ -124,6 +108,12 @@ class ScanController extends Controller
             'completed_at' => $scan->completed_at?->toIso8601String(),
             'failure_reason' => $scan->failure_reason,
             'latest_log' => $scan->logs()->latest()->first()?->message,
+            'latest_report' => $latestReport ? [
+                'id' => $latestReport->id,
+                'status' => $latestReport->status,
+                'download_url' => $latestReport->status === 'completed' ? route('reports.download', $latestReport) : null,
+                'error_message' => $latestReport->error_message,
+            ] : null,
         ]);
     }
 }

@@ -47,11 +47,15 @@ class ReportController extends Controller
     {
         $this->authorize('update', $scan);
 
-        $reportService->generateReport($scan, 'pdf');
+        $report = $reportService->generateReport($scan, 'pdf');
+
+        $message = in_array($report->status, ['queued', 'generating'])
+            ? 'PDF security assessment report generation queued in background. It will be ready shortly.'
+            : 'PDF security assessment report generation initialized.';
 
         return redirect()
             ->back()
-            ->with('success', 'PDF security assessment report generated successfully.');
+            ->with('success', $message);
     }
 
     /**

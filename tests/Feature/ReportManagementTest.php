@@ -44,12 +44,20 @@ class ReportManagementTest extends TestCase
 
         $this->assertNotNull($report);
         $this->assertEquals('pdf', $report->type);
-        $this->assertEquals('completed', $report->status);
+        $this->assertEquals('queued', $report->status);
         $this->assertDatabaseHas('reports', [
             'id' => $report->id,
             'scan_id' => $scan->id,
             'type' => 'pdf',
+            'status' => 'queued',
         ]);
+
+        // Process the queued job synchronously
+        $job = new \App\Jobs\GeneratePdfReport($report);
+        $job->handle(app(\App\Services\Report\PdfReportGenerator::class));
+
+        $report->refresh();
+        $this->assertEquals('completed', $report->status);
 
         $fullPath = storage_path('app/' . $report->file_path);
         $this->assertTrue(File::exists($fullPath));
@@ -100,13 +108,15 @@ class ReportManagementTest extends TestCase
         $this->assertStringContainsString('ENCRYPTED AT REST', $html);
     }
 
-    public function test_user_can_trigger_pdf_report_generation_via_post_endpoint(): void
+    public function test_post_endpoint_dispatches_generate_pdf_report_job_asynchronously_and_returns_immediately(): void
     {
+        \Illuminate\Support\Facades\Queue::fake();
+
         $user = User::factory()->create();
 
         $scan = Scan::create([
             'user_id' => $user->id,
-            'name' => 'Endpoint PDF Scan',
+            'name' => 'Async PDF Scan',
             'target_url' => 'https://target.example.com',
             'environment' => 'staging',
             'status' => 'completed',
@@ -120,7 +130,114 @@ class ReportManagementTest extends TestCase
         $this->assertDatabaseHas('reports', [
             'scan_id' => $scan->id,
             'type' => 'pdf',
+            'status' => 'queued',
         ]);
+
+        \Illuminate\Support\Facades\Queue::assertPushedOn('reports', \App\Jobs\GeneratePdfReport::class);
+    }
+
+    public function test_generate_pdf_report_job_executes_lifecycle_queued_to_generating_to_completed(): void
+    {
+        $user = User::factory()->create();
+
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Job Lifecycle Scan',
+            'target_url' => 'https://target.example.com',
+            'environment' => 'staging',
+            'status' => 'completed',
+        ]);
+
+        Finding::create([
+            'scan_id' => $scan->id,
+            'source' => 'owasp_zap',
+            'name' => 'Test Finding For Job',
+            'severity' => 'high',
+            'risk' => 'High',
+            'confidence' => 'High',
+            'url' => 'https://target.example.com/test',
+        ]);
+
+        $report = Report::create([
+            'scan_id' => $scan->id,
+            'type' => 'pdf',
+            'file_path' => '',
+            'status' => 'queued',
+        ]);
+
+        $job = new \App\Jobs\GeneratePdfReport($report);
+        $job->handle(app(\App\Services\Report\PdfReportGenerator::class));
+
+        $freshReport = $report->fresh();
+        $this->assertEquals('completed', $freshReport->status);
+        $this->assertNotNull($freshReport->completed_at);
+        $this->assertNotNull($freshReport->generated_at);
+        $this->assertNotEmpty($freshReport->file_path);
+
+        $fullPath = storage_path('app/' . $freshReport->file_path);
+        $this->assertTrue(File::exists($fullPath));
+        $this->assertGreaterThan(0, File::size($fullPath));
+
+        // Scan status remains completed
+        $this->assertEquals('completed', $scan->fresh()->status);
+
+        File::delete($fullPath);
+    }
+
+    public function test_duplicate_pdf_generation_requests_do_not_create_duplicate_pending_jobs(): void
+    {
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $user = User::factory()->create();
+
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Duplicate Request Scan',
+            'target_url' => 'https://target.example.com',
+            'environment' => 'staging',
+            'status' => 'completed',
+        ]);
+
+        $reportService = app(ReportService::class);
+        $report1 = $reportService->generateReport($scan, 'pdf');
+        $report2 = $reportService->generateReport($scan, 'pdf');
+
+        $this->assertEquals($report1->id, $report2->id);
+        $this->assertEquals(1, Report::where('scan_id', $scan->id)->count());
+    }
+
+    public function test_generate_pdf_report_job_handles_failure_without_altering_scan_status(): void
+    {
+        $user = User::factory()->create();
+
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Failing Report Scan',
+            'target_url' => 'https://target.example.com',
+            'environment' => 'staging',
+            'status' => 'completed',
+        ]);
+
+        $report = Report::create([
+            'scan_id' => $scan->id,
+            'type' => 'pdf',
+            'file_path' => '',
+            'status' => 'queued',
+        ]);
+
+        // Mock generator to throw exception
+        $mockGenerator = $this->createMock(\App\Services\Report\PdfReportGenerator::class);
+        $mockGenerator->method('generate')->willThrowException(new \Exception('Dompdf rendering exception simulation'));
+
+        $job = new \App\Jobs\GeneratePdfReport($report);
+        $job->handle($mockGenerator);
+
+        $freshReport = $report->fresh();
+        $this->assertEquals('failed', $freshReport->status);
+        $this->assertStringContainsString('Dompdf rendering exception simulation', $freshReport->error_message);
+
+        // Assessment scan status MUST remain completed
+        $this->assertEquals('completed', $scan->fresh()->status);
     }
 
     public function test_authorized_user_can_download_report(): void

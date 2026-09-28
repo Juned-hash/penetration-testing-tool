@@ -7,8 +7,6 @@ Project name: Authorized Web Application Security Assessment Platform
 This is a standalone Laravel application for managing authorized web application
 security assessments.
 
-The application is NOT part of SOAPBOX.CLOUD and must remain completely
-independent from all SOAPBOX projects.
 
 The Laravel application is the management, orchestration, result-ingestion,
 findings, and reporting layer.

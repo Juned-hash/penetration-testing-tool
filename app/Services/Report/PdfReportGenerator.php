@@ -12,6 +12,10 @@ class PdfReportGenerator implements ReportGeneratorInterface
     /**
      * Generate an assessment PDF report file for the given Scan.
      *
+     * Note: PDF generation via Dompdf renders the complete HTML template and DOM tree in memory.
+     * Large security assessment reports with numerous findings can exceed the default 128M PHP memory limit.
+     * The application PHP memory_limit is configured to 512M in docker/php/conf.d/memory-limit.ini.
+     *
      * @param Scan $scan
      * @return string Relative storage path to generated PDF report.
      */

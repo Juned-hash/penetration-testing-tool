@@ -12,10 +12,15 @@ class Report extends Model
         'type',
         'file_path',
         'status',
+        'error_message',
+        'started_at',
+        'completed_at',
         'generated_at',
     ];
 
     protected $casts = [
+        'started_at' => 'datetime',
+        'completed_at' => 'datetime',
         'generated_at' => 'datetime',
     ];
 

@@ -25,13 +25,36 @@
                 <tbody>
                     @foreach ($reports as $report)
                         <tr>
-                            <td>{{ $report->scan->name ?? 'Assessment' }}</td>
-                            <td><span class="badge bg-dark">{{ strtoupper($report->type) }}</span></td>
-                            <td class="text-muted small">{{ $report->generated_at ? $report->generated_at->format('M d, Y H:i') : 'N/A' }}</td>
-                            <td class="text-end">
-                                <a href="{{ route('reports.download', $report) }}" class="btn btn-sm btn-outline-primary fw-semibold">
-                                    <i class="bi bi-download me-1"></i> Download PDF
+                            <td>
+                                <a href="{{ route('scans.show', $report->scan) }}" class="text-decoration-none fw-semibold">
+                                    {{ $report->scan->name ?? 'Assessment' }}
                                 </a>
+                            </td>
+                            <td><span class="badge bg-dark">{{ strtoupper($report->type) }}</span></td>
+                            <td>
+                                @php
+                                    $statusBadge = match($report->status) {
+                                        'completed' => 'bg-success',
+                                        'generating', 'queued' => 'bg-info text-dark',
+                                        'failed' => 'bg-danger',
+                                        default => 'bg-secondary',
+                                    };
+                                @endphp
+                                <span class="badge {{ $statusBadge }} text-capitalize">{{ $report->status }}</span>
+                            </td>
+                            <td class="text-muted small">{{ $report->completed_at ? $report->completed_at->format('M d, Y H:i') : ($report->created_at ? $report->created_at->format('M d, Y H:i') : 'N/A') }}</td>
+                            <td class="text-end">
+                                @if ($report->status === 'completed')
+                                    <a href="{{ route('reports.download', $report) }}" class="btn btn-sm btn-outline-success fw-semibold">
+                                        <i class="bi bi-download me-1"></i> Download PDF
+                                    </a>
+                                @elseif (in_array($report->status, ['queued', 'generating']))
+                                    <button class="btn btn-sm btn-outline-secondary fw-semibold" disabled>
+                                        <i class="bi bi-hourglass-split me-1"></i> Generating...
+                                    </button>
+                                @else
+                                    <span class="text-danger small font-monospace" title="{{ $report->error_message }}">Failed</span>
+                                @endif
                             </td>
                         </tr>
                     @endforeach
