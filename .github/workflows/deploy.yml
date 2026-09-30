@@ -132,7 +132,7 @@ jobs:
             cp .env.example .env &&
             sed -i 's|^APP_ENV=.*|APP_ENV=production|' .env &&
             sed -i 's|^APP_DEBUG=.*|APP_DEBUG=false|' .env &&
-            sed -i 's|^APP_URL=.*|APP_URL=https://${{ secrets.VM_IP }}|' .env &&
+            sed -i 's|^APP_URL=.*|APP_URL=http://${{ secrets.VM_IP }}:8081|' .env &&
             sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env &&
             sed -i 's|^# DB_HOST=.*|DB_HOST=mysql|' .env &&
             sed -i 's|^# DB_PORT=.*|DB_PORT=3306|' .env &&
