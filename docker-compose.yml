@@ -35,6 +35,8 @@ services:
     image: nginx:alpine
     container_name: pentest_nginx
     restart: unless-stopped
+    ports:
+      - "8081:80"
     volumes:
       - .:/var/www/html
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
@@ -42,7 +44,6 @@ services:
       - app
     networks:
       - pentest_network
-      - shared_nginx_network
 
   mysql:
     image: mysql:8.0
@@ -125,8 +126,3 @@ volumes:
 networks:
   pentest_network:
     driver: bridge
-  shared_nginx_network:
-    external: true
-    # The network name is usually the other project's folder name + '_dev-net'
-    # Run `docker network ls` on your VM to find the exact name if this fails
-    name: "audit_dev-net"
