@@ -9,11 +9,8 @@ services:
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
-      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
     environment:
       APP_ENV: local
-      APP_TIMEZONE: Asia/Kolkata
-      TZ: Asia/Kolkata
       APP_DEBUG: "true"
       APP_URL: http://localhost:8081
       DB_CONNECTION: mysql
@@ -62,10 +59,11 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
     networks:
       - pentest_network
 
@@ -87,18 +85,15 @@ services:
       dockerfile: Dockerfile
     container_name: pentest_queue_worker
     restart: unless-stopped
-    command: php artisan queue:work redis --queue=assessments,reports,default --tries=3 --timeout=3900 --sleep=3
+    command: php artisan queue:work redis --tries=3 --timeout=3900 --sleep=3
     working_dir: /var/www/html
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
 
     environment:
       APP_ENV: local
-      APP_TIMEZONE: Asia/Kolkata
-      TZ: Asia/Kolkata
       APP_DEBUG: "true"
       APP_URL: http://localhost:8080
       DB_CONNECTION: mysql
