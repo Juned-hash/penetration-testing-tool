@@ -43,45 +43,96 @@ class ZapDockerRunnerTest extends TestCase
             $runner->translateTargetUrlForDocker('http://localhost:4200/api/v1')
         );
 
-        // Verify non-localhost URLs are not modified
         $this->assertEquals(
             'https://app.example.com',
             $runner->translateTargetUrlForDocker('https://app.example.com')
         );
     }
 
-    public function test_docker_command_construction(): void
+    public function test_named_volume_and_container_name_generation_per_scan(): void
     {
-        Config::set('zap.docker_user', 'root');
         $runner = new ZapRunner();
-        $workDir = storage_path('app/zap/scan_99');
-        $normalizedWorkDir = $runner->toHostPath($workDir);
 
-        $command = $runner->buildDockerCommand($workDir, 'assessment.yaml', 'ghcr.io/zaproxy/zaproxy:stable', false, 'pentest-zap-scan-99');
+        $vol1 = $runner->getVolumeName(101);
+        $vol2 = $runner->getVolumeName(102);
 
-        $this->assertContains('run', $command);
-        $this->assertContains('--rm', $command);
-        $this->assertContains('--user', $command);
-        $this->assertContains('root', $command);
-        $this->assertContains('--name', $command);
-        $this->assertContains('pentest-zap-scan-99', $command);
-        $this->assertContains("-v", $command);
-        $this->assertContains("{$normalizedWorkDir}:/zap/wrk:rw", $command);
-        $this->assertContains('ghcr.io/zaproxy/zaproxy:stable', $command);
-        $this->assertContains('zap.sh', $command);
-        $this->assertContains('-autorun', $command);
-        $this->assertContains('/zap/wrk/assessment.yaml', $command);
+        $this->assertEquals('zap_scan_101', $vol1);
+        $this->assertEquals('zap_scan_102', $vol2);
+        $this->assertNotEquals($vol1, $vol2);
+
+        $container1 = $runner->getContainerName(101);
+        $container2 = $runner->getContainerName(102);
+
+        $this->assertEquals('zap-scan-101', $container1);
+        $this->assertEquals('zap-scan-102', $container2);
+        $this->assertNotEquals($container1, $container2);
     }
 
-    public function test_unique_container_names_for_concurrent_scans(): void
+    public function test_docker_volume_creation_command(): void
     {
         $runner = new ZapRunner();
-        $cmd1 = $runner->buildDockerCommand('/var/www/html/storage/app/zap/scan_101', 'assessment.yaml', null, false, 'pentest-zap-scan-101');
-        $cmd2 = $runner->buildDockerCommand('/var/www/html/storage/app/zap/scan_102', 'assessment.yaml', null, false, 'pentest-zap-scan-102');
+        $cmd = $runner->buildVolumeCreateCommand('zap_scan_101');
 
-        $this->assertContains('pentest-zap-scan-101', $cmd1);
-        $this->assertContains('pentest-zap-scan-102', $cmd2);
-        $this->assertNotEquals($cmd1, $cmd2);
+        $this->assertContains('volume', $cmd);
+        $this->assertContains('create', $cmd);
+        $this->assertContains('zap_scan_101', $cmd);
+    }
+
+    public function test_volume_initialization_command_uses_root_chown_1000(): void
+    {
+        $runner = new ZapRunner();
+        $cmd = $runner->buildVolumeInitCommand('zap_scan_101', 'ghcr.io/zaproxy/zaproxy:stable');
+
+        $this->assertContains('run', $cmd);
+        $this->assertContains('--rm', $cmd);
+        $this->assertContains('--user', $cmd);
+        $this->assertContains('root', $cmd);
+        $this->assertContains('-v', $cmd);
+        $this->assertContains('zap_scan_101:/zap/wrk', $cmd);
+        $this->assertContains('chown -R 1000:1000 /zap/wrk', $cmd);
+    }
+
+    public function test_zap_container_creation_command_uses_non_root_zap_user_and_named_volume(): void
+    {
+        Config::set('zap.docker_user', 'zap');
+        $runner = new ZapRunner();
+        $cmd = $runner->buildCreateContainerCommand('zap_scan_101', 'zap-scan-101', 'assessment.yaml', 'ghcr.io/zaproxy/zaproxy:stable', false);
+
+        $this->assertContains('create', $cmd);
+        $this->assertContains('--name', $cmd);
+        $this->assertContains('zap-scan-101', $cmd);
+        $this->assertContains('--user', $cmd);
+        $this->assertContains('zap', $cmd);
+        $this->assertContains('-v', $cmd);
+        $this->assertContains('zap_scan_101:/zap/wrk', $cmd);
+
+        // Container MUST NOT be created with --rm so artifacts can be copied out after completion
+        $this->assertNotContains('--rm', $cmd);
+
+        // Host Windows filesystem path MUST NOT be mounted as /zap/wrk
+        $hostPathString = storage_path('app/zap/scan_101');
+        $this->assertNotContains("{$hostPathString}:/zap/wrk", $cmd);
+        $this->assertNotContains("{$hostPathString}:/zap/wrk:rw", $cmd);
+    }
+
+    public function test_assessment_yaml_copy_command(): void
+    {
+        $runner = new ZapRunner();
+        $cmd = $runner->buildCopyYamlCommand('zap-scan-101', '/host/storage/app/zap/scan_101/assessment.yaml');
+
+        $this->assertContains('cp', $cmd);
+        $this->assertContains('/host/storage/app/zap/scan_101/assessment.yaml', $cmd);
+        $this->assertContains('zap-scan-101:/zap/wrk/assessment.yaml', $cmd);
+    }
+
+    public function test_export_artifacts_command(): void
+    {
+        $runner = new ZapRunner();
+        $cmd = $runner->buildExportArtifactsCommand('zap-scan-101', '/host/storage/app/zap/scan_101');
+
+        $this->assertContains('cp', $cmd);
+        $this->assertContains('zap-scan-101:/zap/wrk/.', $cmd);
+        $this->assertContains('/host/storage/app/zap/scan_101/', $cmd);
     }
 
     public function test_queue_timeout_hierarchy_configuration(): void
@@ -171,25 +222,128 @@ class ZapDockerRunnerTest extends TestCase
         $this->assertEquals(1, $count);
         $finding = $scan->findings()->first();
         $this->assertNotNull($finding);
-        // Verify host.docker.internal was normalized back to original user target host
         $this->assertEquals('http://127.0.0.1:4200/index.html', $finding->url);
     }
 
-    public function test_timeout_exception_handling(): void
+    public function test_failed_zap_execution_retains_temporary_directory_and_logs_sanitized_failure_details(): void
     {
-        Config::set('zap.timeout', 1);
+        $user = User::factory()->create();
 
-        $workDir = storage_path('app/zap/scan_timeout_test');
-        File::ensureDirectoryExists($workDir);
-        $yamlPath = $workDir . '/assessment.yaml';
-        File::put($yamlPath, 'env: {}');
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Failed Execution Test Scan',
+            'target_url' => 'https://target.example.com',
+            'environment' => 'staging',
+            'status' => 'draft',
+        ]);
 
-        $runner = new ZapRunner();
-        $result = $runner->runAutomationFramework($yamlPath, $workDir, false, 'pentest-zap-scan-timeout-test');
+        $mockRunner = $this->createMock(ZapRunner::class);
+        $mockRunner->method('isAvailable')->willReturn(true);
+        $mockRunner->method('isDockerImageAvailable')->willReturn(true);
+        $mockRunner->method('translateTargetUrlForDocker')->willReturn('https://target.example.com');
+        $mockRunner->method('toHostPath')->willReturnCallback(fn($p) => $p);
+        $mockRunner->method('getVolumeName')->willReturn('zap_scan_' . $scan->id);
+        $mockRunner->method('getContainerName')->willReturn('zap-scan-' . $scan->id);
+        $mockRunner->method('runAutomationFramework')->willReturn([
+            'success' => false,
+            'exitCode' => 1,
+            'output' => "FATAL ERROR: Failed to connect to host\nCookie: JSESSIONID=secret123\npassword=super-secret-password-99",
+            'error' => "Process crashed unexpectedly\nAuthorization: Bearer my-secret-jwt-token",
+            'timedOut' => false,
+        ]);
+
+        $mockBuilder = new ZapConfigurationBuilder();
+        $mockParser = new ZapResultParser();
+        $mockScanService = app(\App\Services\ScanService::class);
+        $mockAuthParser = new \App\Services\Zap\ZapAuthenticationDiagnosticsParser();
+
+        $service = new \App\Services\Zap\ZapService(
+            $mockBuilder,
+            $mockRunner,
+            $mockParser,
+            $mockScanService,
+            $mockAuthParser
+        );
+
+        $result = $service->runAssessment($scan);
+
+        $this->assertFalse($result);
+        $this->assertEquals('failed', $scan->fresh()->status);
+
+        $workDir = str_replace('\\', '/', storage_path("app/zap/scan_{$scan->id}"));
+        $this->assertTrue(File::exists($workDir));
+
+        $retainedLog = $scan->logs()->where('phase', 'zap_debug_artifacts')->first();
+        $this->assertNotNull($retainedLog);
+        $this->assertStringContainsString('ZAP_DEBUG_ARTIFACTS_RETAINED', $retainedLog->message);
+        $this->assertStringContainsString($workDir, $retainedLog->message);
+
+        $failureLog = $scan->logs()->where('phase', 'zap_execution_failure')->first();
+        $this->assertNotNull($failureLog);
+        $this->assertStringContainsString('ZAP_EXECUTION_FAILURE Exit Code: 1', $failureLog->message);
+        $this->assertStringNotContainsString('super-secret-password-99', $failureLog->message);
+        $this->assertStringNotContainsString('secret123', $failureLog->message);
+        $this->assertStringNotContainsString('my-secret-jwt-token', $failureLog->message);
+        $this->assertStringContainsString('[REDACTED]', $failureLog->message);
 
         File::deleteDirectory($workDir);
+    }
 
-        $this->assertFalse($result['success']);
-        $this->assertArrayHasKey('timedOut', $result);
+    public function test_successful_zap_execution_cleans_up_temporary_files(): void
+    {
+        $user = User::factory()->create();
+
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Success Execution Cleanup Test Scan',
+            'target_url' => 'https://target.example.com',
+            'environment' => 'staging',
+            'status' => 'draft',
+        ]);
+
+        $workDir = str_replace('\\', '/', storage_path("app/zap/scan_{$scan->id}"));
+        File::ensureDirectoryExists($workDir);
+        $jsonReportPath = $workDir . '/report.json';
+        File::put($jsonReportPath, json_encode(['site' => []]));
+
+        $mockRunner = $this->createMock(ZapRunner::class);
+        $mockRunner->method('isAvailable')->willReturn(true);
+        $mockRunner->method('isDockerImageAvailable')->willReturn(true);
+        $mockRunner->method('translateTargetUrlForDocker')->willReturn('https://target.example.com');
+        $mockRunner->method('toHostPath')->willReturnCallback(fn($p) => $p);
+        $mockRunner->method('getVolumeName')->willReturn('zap_scan_' . $scan->id);
+        $mockRunner->method('getContainerName')->willReturn('zap-scan-' . $scan->id);
+        $mockRunner->method('runAutomationFramework')->willReturn([
+            'success' => true,
+            'exitCode' => 0,
+            'output' => "ZAP execution completed successfully.",
+            'error' => "",
+            'timedOut' => false,
+        ]);
+
+        $mockBuilder = new ZapConfigurationBuilder();
+        $mockParser = new ZapResultParser();
+        $mockScanService = app(\App\Services\ScanService::class);
+        $mockAuthParser = new \App\Services\Zap\ZapAuthenticationDiagnosticsParser();
+
+        $service = new \App\Services\Zap\ZapService(
+            $mockBuilder,
+            $mockRunner,
+            $mockParser,
+            $mockScanService,
+            $mockAuthParser
+        );
+
+        $result = $service->runAssessment($scan);
+
+        $this->assertTrue($result);
+        $this->assertEquals('completed', $scan->fresh()->status);
+
+        $this->assertFalse(File::exists($workDir . '/assessment.yaml'));
+        $this->assertFalse(File::exists($jsonReportPath));
+
+        if (File::exists($workDir)) {
+            File::deleteDirectory($workDir);
+        }
     }
 }

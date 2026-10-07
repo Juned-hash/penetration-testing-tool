@@ -79,19 +79,20 @@ services:
     networks:
       - pentest_network
 
-  queue_worker:
+  queue_assessment:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: pentest_queue_worker
     restart: unless-stopped
-    command: php artisan queue:work redis --tries=3 --timeout=3900 --sleep=3
+
+    command: php artisan queue:work redis --queue=assessments --tries=3 --timeout=3900 --sleep=3
+
     working_dir: /var/www/html
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
       - /var/run/docker.sock:/var/run/docker.sock
-
+      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
     environment:
       APP_ENV: local
       APP_DEBUG: "true"
@@ -111,6 +112,41 @@ services:
       REDIS_QUEUE_RETRY_AFTER: ${REDIS_QUEUE_RETRY_AFTER:-4200}
       ZAP_TIMEOUT: ${ZAP_TIMEOUT:-3600}
       ZAP_ACTIVE_SCAN_MAX_DURATION: ${ZAP_ACTIVE_SCAN_MAX_DURATION:-20}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pentest_network
+
+  queue_reports:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: php artisan queue:work redis --queue=reports --tries=3 --timeout=600 --sleep=3
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - ./docker/php/conf.d/memory-limit.ini:/usr/local/etc/php/conf.d/memory-limit.ini:ro
+    environment:
+      APP_ENV: local
+      APP_TIMEZONE: Asia/Kolkata
+      TZ: Asia/Kolkata
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: penetration_testing
+      DB_USERNAME: pentest_user
+      DB_PASSWORD: pentest_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_CLIENT: phpredis
+      QUEUE_CONNECTION: redis
     depends_on:
       mysql:
         condition: service_healthy

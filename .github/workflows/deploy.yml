@@ -139,12 +139,14 @@ jobs:
             sed -i 's|^# DB_DATABASE=.*|DB_DATABASE=penetration_testing|' .env &&
             sed -i 's|^# DB_USERNAME=.*|DB_USERNAME=pentest_user|' .env &&
             sed -i 's|^# DB_PASSWORD=.*|DB_PASSWORD=pentest_password|' .env &&
-            APP_KEY_VALUE=\$(openssl rand -base64 32) &&
-            sed -i \"s|^APP_KEY=.*|APP_KEY=base64:\${APP_KEY_VALUE}|\" .env &&
+            APP_KEY_VALUE=\$(cat ~/pentest-tool/secrets/APP_KEY.txt 2>/dev/null || echo -n \"base64:\$(openssl rand -base64 32)\") &&
+            sed -i \"s|^APP_KEY=.*|APP_KEY=\${APP_KEY_VALUE}|\" .env &&
+            ASSESSMENT_COUNT=\$(grep '^ASSESSMENT_WORKERS=' .env | cut -d'=' -f2) &&
+            REPORT_COUNT=\$(grep '^REPORT_WORKERS=' .env | cut -d'=' -f2) &&
             docker compose down --remove-orphans || true &&
             docker system prune -af --volumes || true &&
             docker compose build --no-cache &&
-            docker compose up -d --build
+            docker compose up -d --build --scale queue_assessment=\${ASSESSMENT_COUNT:-3} --scale queue_reports=\${REPORT_COUNT:-1}
           "
 
       - name: Install dependencies & setup Laravel

@@ -42,6 +42,13 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_register_route_redirects_to_login(): void
+    {
+        $response = $this->get('/register');
+
+        $response->assertRedirect(route('login'));
+    }
+
     public function test_users_can_register(): void
     {
         $response = $this->post('/register', [

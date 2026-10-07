@@ -15,7 +15,9 @@ Route::get('/', function () {
 
 // Guest Auth Routes
 Route::middleware('guest')->group(function () {
-    Route::get('/register', [RegisteredUserController::class, 'create'])->name('register');
+    Route::get('/register', function () {
+        return redirect()->route('login');
+    })->name('register');
     Route::post('/register', [RegisteredUserController::class, 'store']);
 
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -35,6 +37,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/scans/{scan}/status', [ScanController::class, 'status'])->name('scans.status');
     Route::post('/scans/{scan}/confirm-authorization', [ScanController::class, 'confirmAuthorization'])->name('scans.confirm-authorization');
     Route::post('/scans/{scan}/start', [ScanController::class, 'start'])->name('scans.start');
+    Route::post('/scans/{scan}/test-authentication', [ScanController::class, 'testAuthentication'])->name('scans.test-authentication');
     Route::post('/scans/{scan}/rerun', [ScanController::class, 'rerun'])->name('scans.rerun');
 
     // Finding Routes

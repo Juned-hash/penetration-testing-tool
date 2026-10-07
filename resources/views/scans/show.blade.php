@@ -74,6 +74,97 @@
                                     @endif
                                 </td>
                             </tr>
+                            @if ($scan->authenticationConfiguration && $scan->authenticationConfiguration->mode !== 'none')
+                                @php
+                                    $authLog = $scan->logs->firstWhere('phase', 'zap_auth_test_completed') ?? $scan->logs->firstWhere('phase', 'zap_auth_diagnostics');
+                                    $authStatus = 'AUTHENTICATION_UNKNOWN';
+                                    $authBadge = 'bg-warning text-dark';
+                                    if ($authLog) {
+                                        $rawMsg = $authLog->message;
+                                        if (str_starts_with(trim($rawMsg), '{')) {
+                                            $decoded = json_decode($rawMsg, true);
+                                            $rawMsg = $decoded['log_message'] ?? $rawMsg;
+                                        }
+                                        if (str_contains($rawMsg, 'Status: AUTHENTICATED') || str_contains($rawMsg, 'Status: SUCCESS')) {
+                                            $authStatus = 'AUTHENTICATED';
+                                            $authBadge = 'bg-success';
+                                        } elseif (str_contains($rawMsg, 'Status: AUTHENTICATION_FAILED') || str_contains($rawMsg, 'Status: FAILED')) {
+                                            $authStatus = 'AUTHENTICATION_FAILED';
+                                            $authBadge = 'bg-danger';
+                                        } elseif (str_contains($rawMsg, 'Status: NOT_CONFIGURED') || str_contains($rawMsg, 'Status: NONE')) {
+                                            $authStatus = 'NOT_CONFIGURED';
+                                            $authBadge = 'bg-secondary';
+                                        }
+                                    }
+                                @endphp
+                                <tr>
+                                    <td class="text-muted align-top">ZAP Auth Status:</td>
+                                    <td>
+                                        @if ($authLog)
+                                            <span class="badge {{ $authBadge }} fs-6 mb-2">{{ $authStatus }}</span>
+                                            <div class="bg-light p-3 rounded border font-monospace small">
+                                                <div class="mb-2 text-dark fw-bold border-bottom pb-1">
+                                                    <i class="bi bi-shield-check me-1"></i> OWASP ZAP Authentication Diagnostics
+                                                </div>
+                                                @php
+                                                    $msg = $authLog->message;
+                                                    if (str_starts_with(trim($msg), '{')) {
+                                                        $decoded = json_decode($msg, true);
+                                                        $msg = $decoded['log_message'] ?? $msg;
+                                                    }
+                                                    preg_match('/Username Field:\s*([^\|]+)/i', $msg, $uMatch);
+                                                    preg_match('/Password Field:\s*([^\|]+)/i', $msg, $pMatch);
+                                                    preg_match('/Login Attempt:\s*([^\|]+)/i', $msg, $lMatch);
+                                                    preg_match('/Successful Logins:\s*([^\|]+)/i', $msg, $slMatch);
+                                                    preg_match('/Failed Logins:\s*([^\|]+)/i', $msg, $flMatch);
+                                                    preg_match('/Session Management:\s*([^\|]+)/i', $msg, $smMatch);
+                                                    preg_match('/Verification:\s*([^\|]+)/i', $msg, $vMatch);
+                                                    preg_match('/Failure Reason:\s*([^\|]+)/i', $msg, $frMatch);
+                                                    preg_match('/Message:\s*(.+)$/i', $msg, $mMatch);
+                                                @endphp
+                                                <div class="row g-2 mb-2 text-dark">
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Username Field:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($uMatch[1] ?? 'NOT IDENTIFIED') }}</span>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Password Field:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($pMatch[1] ?? 'NOT IDENTIFIED') }}</span>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Login Attempt:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($lMatch[1] ?? 'NO') }}</span>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Successful / Failed Logins:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($slMatch[1] ?? '0') }} / {{ trim($flMatch[1] ?? '0') }}</span>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Session Management:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($smMatch[1] ?? 'NOT IDENTIFIED') }}</span>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <span class="text-muted">Verification:</span>
+                                                        <span class="fw-semibold text-dark">{{ trim($vMatch[1] ?? 'NOT IDENTIFIED') }}</span>
+                                                    </div>
+                                                </div>
+                                                @if (!empty($frMatch[1]) && trim($frMatch[1]) !== 'None')
+                                                    <div class="mt-2 pt-2 border-top text-danger">
+                                                        <strong>Failure Reason:</strong> {{ trim($frMatch[1]) }}
+                                                    </div>
+                                                @endif
+                                                @if (!empty($mMatch[1]))
+                                                    <div class="mt-1 text-muted small border-top pt-1">
+                                                        {{ trim($mMatch[1]) }}
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        @else
+                                            <span class="badge bg-secondary">NOT EXECUTED / UNKNOWN</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>
@@ -147,6 +238,15 @@
                         <i class="bi bi-check-circle-fill me-1"></i> Authorization explicitly confirmed on<br>
                         <strong>{{ $scan->authorization_confirmed_at->format('M d, Y H:i:s') }}</strong>
                     </div>
+
+                    @if ($scan->authenticationConfiguration && $scan->authenticationConfiguration->mode !== 'none')
+                        <form method="POST" action="{{ route('scans.test-authentication', $scan) }}" class="mb-3" onsubmit="return confirm('Run dedicated ZAP Authentication Verification Test?\n\nThis will execute a lightweight authentication check without launching a full vulnerability scan.');">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-info w-100 fw-bold py-2">
+                                <i class="bi bi-key-fill me-1"></i> Verify Authentication
+                            </button>
+                        </form>
+                    @endif
 
                     @if ($scan->status === 'draft')
                         <form method="POST" action="{{ route('scans.start', $scan) }}">

@@ -12,6 +12,7 @@ class ZapConfigurationBuilder
      * @param Scan $scan
      * @param string $reportDir
      * @param string $reportFile
+     * @param string|null $overrideTargetUrl
      * @return array
      */
     public function buildArray(Scan $scan, string $reportDir, string $reportFile = 'report.json', ?string $overrideTargetUrl = null): array
@@ -21,29 +22,45 @@ class ZapConfigurationBuilder
         $contextName = 'Target Context';
         $targetUrl = rtrim($overrideTargetUrl ?: $scan->target_url, '/');
 
-        // Target URLs and Included Paths
-        $urls = [$targetUrl];
-        $includePaths = [];
+        // Extract base origin URL (e.g. https://10.100.0.5:8443) for context boundary
+        $baseUrl = $this->extractBaseUrl($targetUrl);
 
-        $includedScopes = $scan->scanScopes->where('type', 'include');
-        if ($includedScopes->isEmpty()) {
-            $includePaths[] = preg_quote($targetUrl, '#') . '.*';
-        } else {
-            foreach ($includedScopes as $scope) {
-                $includePaths[] = $this->convertPathToRegex($targetUrl, $scope->path);
+        $authConfig = $scan->authenticationConfiguration;
+        $scanConfig = $scan->scanConfiguration;
+
+        // Context URLs should include base URL and login URL base if different
+        $urls = [$baseUrl];
+        if ($authConfig && $authConfig->login_url) {
+            $loginUrl = $overrideTargetUrl
+                ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
+                : $authConfig->login_url;
+            $loginBaseUrl = $this->extractBaseUrl($loginUrl);
+            if (!in_array($loginBaseUrl, $urls, true)) {
+                $urls[] = $loginBaseUrl;
             }
         }
 
-        // Excluded Paths
+        // Included Scope Regexes
+        $includePaths = [];
+        $includedScopes = $scan->scanScopes->where('type', 'include');
+        if ($includedScopes->isEmpty()) {
+            $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+        } else {
+            foreach ($includedScopes as $scope) {
+                $includePaths[] = $this->convertPathToRegex($baseUrl, $scope->path);
+            }
+        }
+
+        // Excluded Paths Regexes
         $excludePaths = [];
         foreach ($scan->scanScopes->where('type', 'exclude') as $scope) {
-            $excludePaths[] = $this->convertPathToRegex($targetUrl, $scope->path);
+            $excludePaths[] = $this->convertPathToRegex($baseUrl, $scope->path);
         }
 
         // Context Structure
         $context = [
             'name' => $contextName,
-            'urls' => $urls,
+            'urls' => array_values(array_unique($urls)),
             'includePaths' => array_values(array_unique($includePaths)),
         ];
 
@@ -53,45 +70,97 @@ class ZapConfigurationBuilder
         }
 
         $users = [];
-        $authConfig = $scan->authenticationConfiguration;
-        $scanConfig = $scan->scanConfiguration;
 
         // Authentication Setup if enabled
         if ($authConfig && $authConfig->mode !== 'none') {
-            $authentication = [
-                'method' => $authConfig->mode,
-                'parameters' => [],
-            ];
+            $loginUrl = $authConfig->login_url
+                ? ($overrideTargetUrl ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url) : $authConfig->login_url)
+                : null;
 
-            if ($authConfig->login_url) {
-                $loginUrl = $overrideTargetUrl
-                    ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
-                    : $authConfig->login_url;
-                $authentication['parameters']['loginUrl'] = $loginUrl;
-            }
-
-            if ($authConfig->mode === 'form') {
+            if ($authConfig->mode === 'browser') {
+                $context['authentication'] = [
+                    'method' => 'browser',
+                    'parameters' => array_filter([
+                        'loginPageUrl' => $loginUrl ?: $targetUrl,
+                        'loginPageWait' => 10,
+                        'stepDelay' => 2,
+                        'browserId' => 'firefox-headless',
+                        'diagnostics' => true,
+                        'steps' => [
+                            [
+                                'description' => 'Wait for Oracle APEX timezone redirect and login form',
+                                'type' => 'WAIT',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Fill Oracle APEX username',
+                                'type' => 'USERNAME',
+                                'cssSelector' => '#P9999_USERNAME',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Fill Oracle APEX password',
+                                'type' => 'PASSWORD',
+                                'cssSelector' => '#P9999_PASSWORD',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Click Oracle APEX Sign In',
+                                'type' => 'CLICK',
+                                'cssSelector' => '#B12056144829423636247',
+                                'timeout' => 10000,
+                            ],
+                        ],
+                    ], fn($val) => $val !== null),
+                    'verification' => [
+                        'method' => 'response',
+                        'loggedInRegex' => '(?i)My Incidents',
+                        'loggedOutRegex' => '(?i)Sign In',
+                    ],
+                ];
+                $context['sessionManagement'] = [
+                    'method' => 'autodetect',
+                ];
+            } elseif ($authConfig->mode === 'form') {
                 $usernameParam = $authConfig->username_field ?? 'username';
                 $passwordParam = $authConfig->password_field ?? 'password';
-                $loginRequestUrl = $authConfig->login_url
-                    ? ($overrideTargetUrl ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url) : $authConfig->login_url)
-                    : $targetUrl;
-                $authentication['parameters']['loginRequestUrl'] = $loginRequestUrl;
-                $authentication['parameters']['loginRequestBody'] = "{$usernameParam}={%username%}&{$passwordParam}={%password%}";
-            }
+                $loginRequestUrl = $loginUrl ?: $targetUrl;
+                $loginPageUrl = $loginUrl ?: $targetUrl;
 
-            if ($authConfig->logged_in_indicator || $authConfig->logged_out_indicator) {
+                $authentication = [
+                    'method' => 'form',
+                    'parameters' => [
+                        'loginPageUrl' => $loginPageUrl,
+                        'loginRequestUrl' => $loginRequestUrl,
+                        'loginRequestBody' => "_token={%_token%}&{$usernameParam}={%username%}&{$passwordParam}={%password%}",
+                    ],
+                ];
+
                 $verification = ['method' => 'response'];
                 if ($authConfig->logged_in_indicator) {
-                    $verification['loggedInRegex'] = preg_quote($authConfig->logged_in_indicator, '#');
+                    $verification['loggedInRegex'] = '(?i)' . preg_quote($authConfig->logged_in_indicator, '#');
+                } else {
+                    $verification['loggedInRegex'] = '(?i)Sign Out|Dashboard';
                 }
                 if ($authConfig->logged_out_indicator) {
-                    $verification['loggedOutRegex'] = preg_quote($authConfig->logged_out_indicator, '#');
+                    $verification['loggedOutRegex'] = '(?i)' . preg_quote($authConfig->logged_out_indicator, '#');
+                } else {
+                    $verification['loggedOutRegex'] = '(?i)Sign In';
                 }
                 $authentication['verification'] = $verification;
-            }
 
-            $context['authentication'] = $authentication;
+                $context['authentication'] = $authentication;
+                $context['sessionManagement'] = [
+                    'method' => 'cookie',
+                ];
+            } elseif ($authConfig->mode === 'token') {
+                $context['authentication'] = [
+                    'method' => 'token',
+                    'parameters' => array_filter([
+                        'tokenName' => $authConfig->token_name,
+                    ]),
+                ];
+            }
 
             if ($authConfig->username || $authConfig->password || $authConfig->token_value) {
                 $credentials = [];
@@ -119,15 +188,73 @@ class ZapConfigurationBuilder
 
         // Construct Jobs List
         $jobs = [];
+        $isAuthEnabled = $authConfig && $authConfig->mode !== 'none';
 
-        // Spider / Crawling Job
+        // 0. Enable plan-level authentication diagnostics if authentication is configured
+        if ($isAuthEnabled) {
+            $jobs[] = [
+                'type' => 'diagnostics',
+                'parameters' => [
+                    'enabled' => true,
+                ],
+            ];
+        }
+
+        $crawlSeedUrl = ($authConfig && $authConfig->authenticated_url)
+            ? ($overrideTargetUrl ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->authenticated_url) : $authConfig->authenticated_url)
+            : $targetUrl;
+
+        // 1. Client Spider (Browser-based JavaScript Crawler)
+        if (!$scanConfig || $scanConfig->spider_enabled || $scanConfig->ajax_spider_enabled) {
+            $clientSpiderJob = [
+                'type' => 'spiderClient',
+                'parameters' => [
+                    'context' => $contextName,
+                    'url' => $crawlSeedUrl,
+                    'maxDuration' => 10,
+                    'maxCrawlDepth' => 0,
+                    'maxChildren' => 0,
+                    'numberOfBrowsers' => 1,
+                    'browserId' => 'firefox-headless',
+                    'scopeCheck' => 'Flexible',
+                ],
+            ];
+            if (!empty($users)) {
+                $clientSpiderJob['parameters']['user'] = 'AssessmentUser';
+            }
+            $jobs[] = $clientSpiderJob;
+        }
+
+        // 2. AJAX Spider Job (Interactive DOM crawler for Oracle APEX dynamic controls, tree menus, ARIA tabs, and modal triggers)
+        if ($scanConfig && $scanConfig->ajax_spider_enabled) {
+            $ajaxSpiderJob = [
+                'type' => 'spiderAjax',
+                'parameters' => [
+                    'context' => $contextName,
+                    'url' => $crawlSeedUrl,
+                    'maxDuration' => 10,
+                    'maxCrawlDepth' => 5,
+                    'numberOfBrowsers' => 1,
+                    'browserId' => 'firefox-headless',
+                    'inScopeOnly' => true,
+                ],
+            ];
+            if (!empty($users)) {
+                $ajaxSpiderJob['parameters']['user'] = 'AssessmentUser';
+            }
+            $jobs[] = $ajaxSpiderJob;
+        }
+
+        // 3. Traditional Spider Job
         if (!$scanConfig || $scanConfig->spider_enabled) {
             $spiderJob = [
                 'type' => 'spider',
                 'parameters' => [
                     'context' => $contextName,
-                    'url' => $targetUrl,
+                    'url' => $crawlSeedUrl,
                     'maxDuration' => 10,
+                    'maxDepth' => 5,
+                    'maxChildren' => 100,
                 ],
             ];
             if (!empty($users)) {
@@ -136,7 +263,7 @@ class ZapConfigurationBuilder
             $jobs[] = $spiderJob;
         }
 
-        // Passive Scan Job
+        // 4. Passive Scan Job
         if (!$scanConfig || $scanConfig->passive_scan_enabled) {
             $jobs[] = [
                 'type' => 'passiveScan-wait',
@@ -146,7 +273,7 @@ class ZapConfigurationBuilder
             ];
         }
 
-        // Active Scan Job
+        // 5. Active Scan Job (scans all discovered URLs within the context)
         if (!$scanConfig || $scanConfig->active_scan_enabled) {
             $maxDuration = (int) config('zap.active_scan_max_duration', 20);
             $activeScanJob = [
@@ -164,7 +291,27 @@ class ZapConfigurationBuilder
             $jobs[] = $activeScanJob;
         }
 
-        // JSON Report Generation Job
+        // 6. Disable diagnostics and export authentication report if authentication was enabled
+        if ($isAuthEnabled) {
+            $jobs[] = [
+                'type' => 'diagnostics',
+                'parameters' => [
+                    'enabled' => false,
+                ],
+            ];
+            $jobs[] = [
+                'type' => 'report',
+                'parameters' => [
+                    'template' => 'auth-report-json',
+                    'reportDir' => '/zap/wrk',
+                    'reportFile' => 'auth-report.json',
+                    'reportTitle' => "OWASP ZAP Authentication Report: {$scan->name}",
+                    'displayReport' => false,
+                ],
+            ];
+        }
+
+        // 7. Traditional Findings JSON Report Generation Job
         $jobs[] = [
             'type' => 'report',
             'parameters' => [
@@ -182,7 +329,7 @@ class ZapConfigurationBuilder
                 'parameters' => [
                     'failOnError' => false,
                     'failOnWarning' => false,
-                    'progressToStdout' => false,
+                    'progressToStdout' => true,
                 ],
             ],
             'jobs' => $jobs,
@@ -195,6 +342,7 @@ class ZapConfigurationBuilder
      * @param Scan $scan
      * @param string $reportDir
      * @param string $reportFile
+     * @param string|null $overrideTargetUrl
      * @return string
      */
     public function buildYaml(Scan $scan, string $reportDir, string $reportFile = 'report.json', ?string $overrideTargetUrl = null): string
@@ -209,22 +357,260 @@ class ZapConfigurationBuilder
     }
 
     /**
-     * Convert path pattern into URL regex.
+     * Build lightweight ZAP Automation Framework configuration array specifically for authentication verification testing.
      *
-     * @param string $targetUrl
+     * @param Scan $scan
+     * @param string $reportDir
+     * @param string $reportFile
+     * @param string|null $overrideTargetUrl
+     * @return array
+     */
+    public function buildAuthTestArray(Scan $scan, string $reportDir = '/zap/wrk', string $reportFile = 'auth-report.json', ?string $overrideTargetUrl = null): array
+    {
+        $scan->loadMissing(['scanScopes', 'scanConfiguration', 'authenticationConfiguration']);
+
+        $contextName = 'Target Context';
+        $targetUrl = rtrim($overrideTargetUrl ?: $scan->target_url, '/');
+        $baseUrl = $this->extractBaseUrl($targetUrl);
+
+        $authConfig = $scan->authenticationConfiguration;
+
+        $urls = [$baseUrl];
+        if ($authConfig && $authConfig->login_url) {
+            $loginUrl = $overrideTargetUrl
+                ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
+                : $authConfig->login_url;
+            $loginBaseUrl = $this->extractBaseUrl($loginUrl);
+            if (!in_array($loginBaseUrl, $urls, true)) {
+                $urls[] = $loginBaseUrl;
+            }
+        }
+
+        $includePaths = [];
+        $includedScopes = $scan->scanScopes->where('type', 'include');
+        if ($includedScopes->isEmpty()) {
+            $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+        } else {
+            foreach ($includedScopes as $scope) {
+                $includePaths[] = $this->convertPathToRegex($baseUrl, $scope->path);
+            }
+        }
+
+        $context = [
+            'name' => $contextName,
+            'urls' => array_values(array_unique($urls)),
+            'includePaths' => array_values(array_unique($includePaths)),
+        ];
+
+        $users = [];
+        if ($authConfig && $authConfig->mode !== 'none') {
+            $loginUrl = $authConfig->login_url
+                ? ($overrideTargetUrl ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url) : $authConfig->login_url)
+                : null;
+
+            if ($authConfig->mode === 'browser') {
+                $context['authentication'] = [
+                    'method' => 'browser',
+                    'parameters' => array_filter([
+                        'loginPageUrl' => $loginUrl ?: $targetUrl,
+                        'loginPageWait' => 10,
+                        'stepDelay' => 2,
+                        'browserId' => 'firefox-headless',
+                        'diagnostics' => true,
+                        'steps' => [
+                            [
+                                'description' => 'Wait for Oracle APEX timezone redirect and login form',
+                                'type' => 'WAIT',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Fill Oracle APEX username',
+                                'type' => 'USERNAME',
+                                'cssSelector' => '#P9999_USERNAME',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Fill Oracle APEX password',
+                                'type' => 'PASSWORD',
+                                'cssSelector' => '#P9999_PASSWORD',
+                                'timeout' => 10000,
+                            ],
+                            [
+                                'description' => 'Click Oracle APEX Sign In',
+                                'type' => 'CLICK',
+                                'cssSelector' => '#B12056144829423636247',
+                                'timeout' => 10000,
+                            ],
+                        ],
+                    ], fn($val) => $val !== null),
+                    'verification' => [
+                        'method' => 'response',
+                        'loggedInRegex' => '(?i)My Incidents',
+                        'loggedOutRegex' => '(?i)Sign In',
+                    ],
+                ];
+            } elseif ($authConfig->mode === 'form') {
+                $usernameParam = $authConfig->username_field ?: 'username';
+                $passwordParam = $authConfig->password_field ?: 'password';
+                $loginRequestBody = "_token={%_token%}&{$usernameParam}={%username%}&{$passwordParam}={%password%}";
+
+                $context['authentication'] = [
+                    'method' => 'form',
+                    'parameters' => [
+                        'loginPageUrl' => $loginUrl ?: $targetUrl,
+                        'loginRequestUrl' => $loginUrl ?: $targetUrl,
+                        'loginRequestBody' => $loginRequestBody,
+                    ],
+                    'verification' => [
+                        'method' => 'response',
+                        'loggedInRegex' => '(?i)Sign Out|Dashboard',
+                        'loggedOutRegex' => '(?i)Sign In',
+                    ],
+                ];
+                $context['sessionManagement'] = [
+                    'method' => 'cookie',
+                ];
+            }
+
+            if ($authConfig->username || $authConfig->password) {
+                $credentials = [];
+                if ($authConfig->username) {
+                    $credentials['username'] = $authConfig->username;
+                }
+                if ($authConfig->password) {
+                    $credentials['password'] = $authConfig->password;
+                }
+                $users[] = [
+                    'name' => 'AssessmentUser',
+                    'credentials' => $credentials,
+                ];
+            }
+        }
+
+        if (!empty($users)) {
+            $context['users'] = $users;
+        }
+
+        $crawlSeedUrl = ($authConfig && $authConfig->authenticated_url)
+            ? ($overrideTargetUrl ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->authenticated_url) : $authConfig->authenticated_url)
+            : $targetUrl;
+
+        $jobs = [];
+        $jobs[] = [
+            'type' => 'diagnostics',
+            'parameters' => ['enabled' => true],
+        ];
+
+        // Lightweight 1-minute spider ONLY to trigger login and request authenticated seed URL
+        $jobs[] = [
+            'type' => 'spider',
+            'parameters' => [
+                'context' => $contextName,
+                'url' => $crawlSeedUrl,
+                'maxDuration' => 1,
+                'maxDepth' => 1,
+                'maxChildren' => 5,
+                'user' => 'AssessmentUser',
+            ],
+        ];
+
+        $jobs[] = [
+            'type' => 'diagnostics',
+            'parameters' => ['enabled' => false],
+        ];
+
+        $jobs[] = [
+            'type' => 'report',
+            'parameters' => [
+                'template' => 'auth-report-json',
+                'reportDir' => $reportDir,
+                'reportFile' => $reportFile,
+                'reportTitle' => "OWASP ZAP Authentication Verification Test: {$scan->name}",
+                'displayReport' => false,
+            ],
+        ];
+
+        return [
+            'env' => [
+                'contexts' => [$context],
+                'parameters' => [
+                    'failOnError' => false,
+                    'failOnWarning' => false,
+                    'progressToStdout' => true,
+                ],
+            ],
+            'jobs' => $jobs,
+        ];
+    }
+
+    /**
+     * Build the YAML configuration string specifically for ZAP Authentication Verification Testing.
+     *
+     * @param Scan $scan
+     * @param string $reportDir
+     * @param string $reportFile
+     * @param string|null $overrideTargetUrl
+     * @return string
+     */
+    public function buildAuthTestYaml(Scan $scan, string $reportDir = '/zap/wrk', string $reportFile = 'auth-report.json', ?string $overrideTargetUrl = null): string
+    {
+        $data = $this->buildAuthTestArray($scan, $reportDir, $reportFile, $overrideTargetUrl);
+
+        if (class_exists(\Symfony\Component\Yaml\Yaml::class)) {
+            return \Symfony\Component\Yaml\Yaml::dump($data, 6, 2);
+        }
+
+        return $this->dumpYamlFallback($data);
+    }
+
+    /**
+     * Extract base URL scheme://host:port from a full URL.
+     *
+     * @param string $url
+     * @return string
+     */
+    protected function extractBaseUrl(string $url): string
+    {
+        $parsed = parse_url($url);
+        if (!$parsed || empty($parsed['host'])) {
+            return rtrim($url, '/');
+        }
+
+        $scheme = $parsed['scheme'] ?? 'http';
+        $host = $parsed['host'];
+        $port = isset($parsed['port']) ? ':' . $parsed['port'] : '';
+
+        return "{$scheme}://{$host}{$port}";
+    }
+
+    /**
+     * Convert path pattern into URL regex relative to base origin URL.
+     *
+     * @param string $baseUrl Base origin URL (e.g. https://example.com:8443)
      * @param string $path
      * @return string
      */
-    protected function convertPathToRegex(string $targetUrl, string $path): string
+    protected function convertPathToRegex(string $baseUrl, string $path): string
     {
-        if ($path === '/*' || $path === '*') {
-            return preg_quote($targetUrl, '#') . '.*';
+        $baseUrl = rtrim($baseUrl, '/');
+
+        if ($path === '/*' || $path === '*' || $path === '/.*' || $path === '.*') {
+            return preg_quote($baseUrl, '#') . '.*';
         }
 
         $cleanPath = '/' . ltrim($path, '/');
-        $regexPath = str_replace('\*', '.*', preg_quote($cleanPath, '#'));
 
-        return preg_quote($targetUrl, '#') . $regexPath;
+        if (str_ends_with($cleanPath, '/.*')) {
+            $prefix = substr($cleanPath, 0, -3);
+            $regexPath = preg_quote($prefix, '#') . '(?:/.*)?';
+        } elseif (str_ends_with($cleanPath, '/*')) {
+            $prefix = substr($cleanPath, 0, -2);
+            $regexPath = preg_quote($prefix, '#') . '(?:/.*)?';
+        } else {
+            $regexPath = preg_quote($cleanPath, '#');
+        }
+
+        return preg_quote($baseUrl, '#') . $regexPath;
     }
 
     /**
@@ -265,5 +651,16 @@ class ZapConfigurationBuilder
         }
 
         return $yaml;
+    }
+
+    /**
+     * Sanitize generated YAML string for safe application logging and audit display.
+     *
+     * @param string $yaml
+     * @return string
+     */
+    public function sanitizeYamlForLogging(string $yaml): string
+    {
+        return preg_replace('/(username|password|tokenValue):\s*"?[^\r\n"]+"?/i', '$1: "[REDACTED]"', $yaml);
     }
 }

@@ -16,7 +16,7 @@ return [
 
     'docker_binary' => env('ZAP_DOCKER_BINARY', 'docker'),
 
-    'docker_user' => env('ZAP_DOCKER_USER', 'root'),
+    'docker_user' => env('ZAP_DOCKER_USER', 'zap'),
 
     'host_project_path' => env('HOST_PROJECT_PATH'),
 

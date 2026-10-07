@@ -101,4 +101,55 @@ class AuthenticationConfigurationTest extends TestCase
         $response->assertDontSee('TOP_SECRET_PASSWORD_DO_NOT_EXPOSE');
         $response->assertSee('•••••••• [ENCRYPTED SECRET]');
     }
+
+    public function test_submitting_browser_auth_mode_persists_browser_mode_and_displays_browser(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->post('/scans', [
+            'name' => 'Browser Assessment',
+            'target_url' => 'https://app.example.com',
+            'environment' => 'staging',
+            'auth_mode' => 'browser',
+            'login_url' => 'https://app.example.com/login',
+            'username' => 'browser_user',
+            'password' => 'BrowserPass123!',
+        ]);
+
+        $scan = Scan::firstWhere('name', 'Browser Assessment');
+        $this->assertNotNull($scan);
+        $this->assertEquals('browser', $scan->authenticationConfiguration->mode);
+
+        $showResponse = $this->actingAs($user)->get(route('scans.show', $scan));
+        $showResponse->assertStatus(200);
+        $showResponse->assertSee('text-uppercase', false);
+        $showResponse->assertSee('browser');
+    }
+
+    public function test_submitting_form_auth_mode_persists_form_mode_and_displays_form(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->post('/scans', [
+            'name' => 'Form Assessment',
+            'target_url' => 'https://app.example.com',
+            'environment' => 'staging',
+            'auth_mode' => 'form',
+            'login_url' => 'https://app.example.com/login',
+            'username_field' => 'email',
+            'password_field' => 'password',
+            'username' => 'form_user',
+            'password' => 'FormPass123!',
+        ]);
+
+        $scan = Scan::firstWhere('name', 'Form Assessment');
+        $this->assertNotNull($scan);
+        $this->assertEquals('form', $scan->authenticationConfiguration->mode);
+
+        $showResponse = $this->actingAs($user)->get(route('scans.show', $scan));
+        $showResponse->assertStatus(200);
+        $showResponse->assertSee('text-uppercase', false);
+        $showResponse->assertSee('form');
+    }
 }
+

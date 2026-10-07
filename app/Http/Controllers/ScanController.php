@@ -92,6 +92,25 @@ class ScanController extends Controller
             ->with('success', 'Assessment job dispatched to queue.');
     }
 
+    public function testAuthentication(Request $request, Scan $scan): RedirectResponse
+    {
+        if ($scan->user_id !== $request->user()->id) {
+            abort(403);
+        }
+
+        if (!$scan->authenticationConfiguration || $scan->authenticationConfiguration->mode === 'none') {
+            return redirect()
+                ->route('scans.show', $scan)
+                ->with('error', 'No authentication is configured for this assessment.');
+        }
+
+        \App\Jobs\TestAuthentication::dispatch($scan)->onQueue('assessments');
+
+        return redirect()
+            ->route('scans.show', $scan)
+            ->with('success', 'Authentication verification test dispatched to queue. Check execution audit log for progress.');
+    }
+
 
     public function rerun(Request $request, Scan $scan): RedirectResponse
     {
