@@ -131,8 +131,8 @@ class ZapDockerRunnerTest extends TestCase
         $cmd = $runner->buildExportArtifactsCommand('zap-scan-101', '/host/storage/app/zap/scan_101');
 
         $this->assertContains('cp', $cmd);
-        $this->assertContains('zap-scan-101:/zap/wrk/.', $cmd);
-        $this->assertContains('/host/storage/app/zap/scan_101/', $cmd);
+        $this->assertContains('zap-scan-101:/zap/wrk/report.json', $cmd);
+        $this->assertContains('/host/storage/app/zap/scan_101/report.json', $cmd);
     }
 
     public function test_queue_timeout_hierarchy_configuration(): void

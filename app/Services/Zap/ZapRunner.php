@@ -370,7 +370,7 @@ class ZapRunner
     }
 
     /**
-     * Build command array for exporting artifacts.
+     * Build command array for selectively exporting persistent assessment artifacts (report.json).
      *
      * @param string $containerName
      * @param string $hostWorkDir
@@ -378,17 +378,18 @@ class ZapRunner
      */
     public function buildExportArtifactsCommand(string $containerName, string $hostWorkDir): array
     {
-        $targetDir = rtrim(str_replace('\\', '/', $hostWorkDir), '/') . '/';
+        $targetPath = rtrim(str_replace('\\', '/', $hostWorkDir), '/') . '/report.json';
         return [
             $this->getDockerBinaryPath(),
             'cp',
-            "{$containerName}:/zap/wrk/.",
-            $targetDir,
+            "{$containerName}:/zap/wrk/report.json",
+            $targetPath,
         ];
     }
 
     /**
-     * Export ZAP artifacts from container volume back to host work directory.
+     * Export persistent ZAP assessment artifacts (report.json) from container volume back to host work directory.
+     * Does NOT copy temporary multi-gigabyte auth-report.json.
      *
      * @param string $containerName
      * @param string $hostWorkDir
@@ -400,8 +401,407 @@ class ZapRunner
         $process = new Process($this->buildExportArtifactsCommand($containerName, $hostWorkDir));
         $process->setTimeout(300);
         $process->run();
+
+        // If report.json was not generated (e.g. lightweight auth verification test scans omit report.json), treat as non-fatal success
+        if (!$process->isSuccessful() && str_contains($process->getErrorOutput(), 'Could not find the file')) {
+            return true;
+        }
+
         return $process->isSuccessful();
     }
+
+    /**
+     * Extract authentication report summary directly from workspace volume memory-safely without copying multi-gigabyte files.
+     * Streams through /zap/wrk/auth-report.json in 128 KB chunks using Python inside a temporary container.
+     *
+     * @param string $volumeName
+     * @param int|string|null $scanId
+     * @return array|null
+     */
+    public function extractAuthReportSummaryFromVolume(string $volumeName, int|string|null $scanId = null): ?array
+    {
+        if (empty($volumeName)) {
+            return null;
+        }
+
+        $dockerBinary = $this->getDockerBinaryPath();
+        $dockerImage = config('zap.docker_image', 'ghcr.io/zaproxy/zaproxy:stable');
+
+        $pythonScript = <<<'PY'
+import json, sys
+
+def extract_key(f, key_name):
+    f.seek(0)
+    chunk_size = 131072
+    overlap_size = 16384
+    buf = b""
+    file_pos = 0
+    key_offset = -1
+    value = None
+    
+    while True:
+        chunk = f.read(chunk_size)
+        if not chunk:
+            break
+        buf_start = file_pos - (len(buf) - len(chunk) if len(buf) > len(chunk) else 0)
+        buf += chunk
+        file_pos += len(chunk)
+        
+        search_from = 0
+        while search_from < len(buf):
+            idx = buf.find(key_name, search_from)
+            if idx == -1:
+                break
+            
+            cand_offset = buf_start + idx
+            col_idx = buf.find(b':', idx + len(key_name))
+            while col_idx == -1:
+                more = f.read(chunk_size)
+                if not more:
+                    break
+                buf += more
+                file_pos += len(more)
+                col_idx = buf.find(b':', idx + len(key_name))
+            
+            if col_idx != -1:
+                i = col_idx + 1
+                while i < len(buf) and buf[i:i+1].isspace():
+                    i += 1
+                
+                while i >= len(buf):
+                    more = f.read(chunk_size)
+                    if not more:
+                        break
+                    buf += more
+                    file_pos += len(more)
+                
+                if i < len(buf):
+                    open_char = buf[i:i+1]
+                    if open_char in (b'[', b'{'):
+                        close_char = b']' if open_char == b'[' else b'}'
+                        depth = 0
+                        in_string = False
+                        escape = False
+                        start_pos = i
+                        found_end = False
+                        curr = i
+                        
+                        while not found_end:
+                            while curr < len(buf):
+                                c = buf[curr:curr+1]
+                                if in_string:
+                                    if escape:
+                                        escape = False
+                                    elif c == b'\\':
+                                        escape = True
+                                    elif c == b'"':
+                                        in_string = False
+                                else:
+                                    if c == b'"':
+                                        in_string = True
+                                    elif c == open_char:
+                                        depth += 1
+                                    elif c == close_char:
+                                        depth -= 1
+                                        if depth == 0:
+                                            found_end = True
+                                            curr += 1
+                                            break
+                                curr += 1
+                            
+                            if not found_end:
+                                more = f.read(chunk_size)
+                                if not more:
+                                    break
+                                buf += more
+                                file_pos += len(more)
+                        
+                        if found_end:
+                            val_bytes = buf[start_pos:curr]
+                            try:
+                                decoded_val = json.loads(val_bytes.decode('utf-8', errors='ignore'))
+                                if decoded_val is not None and isinstance(decoded_val, (list, dict)):
+                                    value = decoded_val
+                                    key_offset = cand_offset
+                                    return key_offset, value
+                            except Exception:
+                                pass
+            
+            search_from = idx + len(key_name)
+
+        if len(buf) > overlap_size:
+            buf = buf[-overlap_size:]
+            
+    return key_offset, value
+
+def run():
+    filepath = '/zap/wrk/auth-report.json'
+    res = {'offsets': {}, 'summary': {}}
+    try:
+        with open(filepath, 'rb') as f:
+            items_off, items_val = extract_key(f, b'"summaryItems"')
+            stats_off, stats_val = extract_key(f, b'"statistics"')
+            
+            if items_off != -1:
+                res['offsets']['summaryItems_offset'] = items_off
+            if stats_off != -1:
+                res['offsets']['statistics_offset'] = stats_off
+            if items_val is not None:
+                res['summary']['summaryItems'] = items_val
+            if stats_val is not None:
+                res['summary']['statistics'] = stats_val
+    except Exception as e:
+        res['error'] = str(e)
+    
+    print(json.dumps(res))
+
+run()
+PY;
+
+        try {
+            $process = new Process([
+                $dockerBinary,
+                'run',
+                '--rm',
+                '-v',
+                "{$volumeName}:/zap/wrk",
+                $dockerImage,
+                'python3',
+                '-c',
+                $pythonScript,
+            ]);
+            $process->setTimeout(60);
+            $process->run();
+
+            if (!$process->isSuccessful()) {
+                return null;
+            }
+
+            $rawOutput = trim($process->getOutput());
+            if (empty($rawOutput)) {
+                return null;
+            }
+
+            $data = json_decode($rawOutput, true);
+            if (!is_array($data)) {
+                return null;
+            }
+
+            $offsets = $data['offsets'] ?? [];
+            $itemsOffset = $offsets['summaryItems_offset'] ?? 'NOT FOUND';
+            $statsOffset = $offsets['statistics_offset'] ?? 'NOT FOUND';
+
+            $numericScanId = is_numeric($scanId) ? (int)$scanId : (preg_match('/(\d+)/', (string)$scanId, $m) ? (int)$m[1] : null);
+
+            if ($numericScanId) {
+                \App\Models\ScanLog::create([
+                    'scan_id' => $numericScanId,
+                    'level' => 'info',
+                    'phase' => 'zap_auth_report_offsets',
+                    'message' => "ZAP_AUTH_REPORT_OFFSETS summaryItems byte offset: {$itemsOffset} | statistics byte offset: {$statsOffset}",
+                ]);
+            }
+
+            return $data['summary'] ?? null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Legacy method alias maintained for backward compatibility.
+     */
+    public function extractAuthReportSummaryFromContainer(string $containerName, int|string|null $scanId = null): ?array
+    {
+        $scanIdPart = $scanId ?: 'test';
+        if (preg_match('/zap-(?:auth-test|scan)-(\w+)/', $containerName, $m)) {
+            $scanIdPart = $m[1];
+        }
+        $volumeName = $this->getVolumeName($scanIdPart);
+        return $this->extractAuthReportSummaryFromVolume($volumeName, $scanId);
+    }
+
+    /**
+     * Extract authentication report summary from a host file path memory-safely.
+     * Streams through host file in 128 KB chunks using fread with bracket-balancing parser.
+     *
+     * @param string $hostPath
+     * @return array|null
+     */
+    public function extractAuthReportSummaryFromFile(string $hostPath): ?array
+    {
+        if (!File::exists($hostPath) || filesize($hostPath) === 0) {
+            return null;
+        }
+
+        $handle = @fopen($hostPath, 'rb');
+        if (!$handle) {
+            return null;
+        }
+
+        $extractKey = function($handle, string $keyName) {
+            fseek($handle, 0);
+            $chunkSize = 131072;
+            $overlapSize = 16384;
+            $buffer = '';
+            $filePos = 0;
+            $keyOffset = -1;
+            $value = null;
+
+            while (!feof($handle)) {
+                $chunk = fread($handle, $chunkSize);
+                if ($chunk === false || strlen($chunk) === 0) {
+                    break;
+                }
+                $bufStartFilePos = $filePos - (strlen($buffer) > strlen($chunk) ? strlen($buffer) - strlen($chunk) : 0);
+                $buffer .= $chunk;
+                $filePos += strlen($chunk);
+
+                $searchFrom = 0;
+                while ($searchFrom < strlen($buffer)) {
+                    $idx = strpos($buffer, $keyName, $searchFrom);
+                    if ($idx === false) {
+                        break;
+                    }
+
+                    $candOffset = $bufStartFilePos + $idx;
+                    $colIdx = strpos($buffer, ':', $idx + strlen($keyName));
+                    while ($colIdx === false && !feof($handle)) {
+                        $more = fread($handle, $chunkSize);
+                        if ($more === false || strlen($more) === 0) break;
+                        $buffer .= $more;
+                        $filePos += strlen($more);
+                        $colIdx = strpos($buffer, ':', $idx + strlen($keyName));
+                    }
+
+                    if ($colIdx !== false) {
+                        $i = $colIdx + 1;
+                        while ($i < strlen($buffer) && ctype_space($buffer[$i])) {
+                            $i++;
+                        }
+                        while ($i >= strlen($buffer) && !feof($handle)) {
+                            $more = fread($handle, $chunkSize);
+                            if ($more === false || strlen($more) === 0) break;
+                            $buffer .= $more;
+                            $filePos += strlen($more);
+                        }
+
+                        if ($i < strlen($buffer)) {
+                            $openChar = $buffer[$i];
+                            if ($openChar === '[' || $openChar === '{') {
+                                $closeChar = $openChar === '[' ? ']' : '}';
+                                $depth = 0;
+                                $inString = false;
+                                $escape = false;
+                                $startPos = $i;
+                                $foundEnd = false;
+                                $curr = $i;
+
+                                while (!$foundEnd) {
+                                    while ($curr < strlen($buffer)) {
+                                        $c = $buffer[$curr];
+                                        if ($inString) {
+                                            if ($escape) {
+                                                $escape = false;
+                                            } elseif ($c === '\\') {
+                                                $escape = true;
+                                            } elseif ($c === '"') {
+                                                $inString = false;
+                                            }
+                                        } else {
+                                            if ($c === '"') {
+                                                $inString = true;
+                                            } elseif ($c === $openChar) {
+                                                $depth++;
+                                            } elseif ($c === $closeChar) {
+                                                $depth--;
+                                                if ($depth === 0) {
+                                                    $foundEnd = true;
+                                                    $curr++;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        $curr++;
+                                    }
+
+                                    if (!$foundEnd) {
+                                        if (feof($handle)) break;
+                                        $more = fread($handle, $chunkSize);
+                                        if ($more === false || strlen($more) === 0) break;
+                                        $buffer .= $more;
+                                        $filePos += strlen($more);
+                                    }
+                                }
+
+                                if ($foundEnd) {
+                                    $valStr = substr($buffer, $startPos, $curr - $startPos);
+                                    $decoded = json_decode($valStr, true);
+                                    if (is_array($decoded)) {
+                                        return [$candOffset, $decoded];
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    $searchFrom = $idx + strlen($keyName);
+                }
+
+                if (strlen($buffer) > $overlapSize) {
+                    $buffer = substr($buffer, -$overlapSize);
+                }
+            }
+
+            return [$keyOffset, $value];
+        };
+
+        list($itemsOffset, $summaryItems) = $extractKey($handle, '"summaryItems"');
+        list($statsOffset, $statistics) = $extractKey($handle, '"statistics"');
+        fclose($handle);
+
+        $summary = [];
+        if ($summaryItems !== null) {
+            $summary['summaryItems'] = $summaryItems;
+        }
+        if ($statistics !== null) {
+            $summary['statistics'] = $statistics;
+        }
+
+        return !empty($summary) ? $summary : null;
+    }
+
+    /**
+     * Extract summaryItems and statistics arrays from JSON buffer memory-safely.
+     *
+     * @param string $buffer
+     * @return array|null
+     */
+    public function extractSummaryFromBuffer(string $buffer): ?array
+    {
+        if (empty($buffer)) {
+            return null;
+        }
+
+        $summary = [];
+
+        if (preg_match('/"summaryItems"\s*:\s*(\[[^\]]*\])/s', $buffer, $matches)) {
+            $items = json_decode($matches[1], true);
+            if (is_array($items)) {
+                $summary['summaryItems'] = $items;
+            }
+        }
+
+        if (preg_match('/"statistics"\s*:\s*(\[[^\]]*\])/s', $buffer, $matches)) {
+            $stats = json_decode($matches[1], true);
+            if (is_array($stats)) {
+                $summary['statistics'] = $stats;
+            }
+        }
+
+        return !empty($summary) ? $summary : null;
+    }
+
 
     /**
      * Stop container execution without removing it (so artifacts can still be exported).
@@ -645,7 +1045,13 @@ class ZapRunner
         if ($logCallback) $logCallback('zap_container_started', "ZAP_CONTAINER_STARTED Started ZAP container: {$containerName}");
         $result = $this->startZapContainer($containerName, $timeout);
 
-        // 6. Stage 6: Export artifacts from volume back to host work directory
+        // 5b. Extract authentication report summary memory-safely directly from workspace volume before volume destruction
+        $authReportSummary = $this->extractAuthReportSummaryFromVolume($volumeName, $scanId);
+        if ($authReportSummary !== null) {
+            $result['authReportSummary'] = $authReportSummary;
+        }
+
+        // 6. Stage 6: Export persistent artifacts (report.json) from volume back to host work directory
         $artifactsExported = $this->exportZapArtifacts($containerName, $hostWorkDir);
         if ($logCallback) {
             $logCallback('zap_artifacts_exported', "ZAP_ARTIFACTS_EXPORTED Exported ZAP artifacts from volume {$volumeName} to host {$hostWorkDir} (" . ($artifactsExported ? 'success' : 'partial/warning') . ")");

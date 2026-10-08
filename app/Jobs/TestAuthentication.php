@@ -16,6 +16,16 @@ class TestAuthentication implements ShouldQueue
     use Queueable, InteractsWithQueue, SerializesModels;
 
     /**
+     * The number of times the job may be attempted.
+     */
+    public int $tries = 1;
+
+    /**
+     * The maximum number of unhandled exceptions to allow before failing.
+     */
+    public int $maxExceptions = 1;
+
+    /**
      * Indicate if the job should fail when a timeout occurs.
      */
     public bool $failOnTimeout = true;

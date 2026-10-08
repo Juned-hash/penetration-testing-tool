@@ -5,6 +5,7 @@ namespace App\Services\Zap;
 use App\Models\Scan;
 use App\Models\ScanLog;
 use App\Services\ScanService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Throwable;
 
@@ -26,70 +27,90 @@ class ZapService
      */
     public function runAssessment(Scan $scan): bool
     {
-        if ($scan->fresh()->status === 'cancelled') {
+        $freshScan = $scan->fresh();
+        if (!$freshScan || $freshScan->status === 'cancelled') {
             return false;
         }
 
-        // 1. Stage 1: Starting
-        $this->scanService->updateStatus($scan, 'starting', 'Initializing OWASP ZAP assessment pipeline.');
-
-        // Preflight Check 1: Target URL validation
-        if (empty($scan->target_url) || !filter_var($scan->target_url, FILTER_VALIDATE_URL)) {
-            $err = 'Preflight failed: Invalid target URL specified.';
-            $this->scanService->updateStatus($scan, 'failed', $err);
-            $scan->update(['failure_reason' => $err]);
+        // Executable State Protection: Prevent double execution or queue retry for active/completed/failed scans
+        if (!in_array($freshScan->status, ['queued', 'starting', 'draft'])) {
+            ScanLog::create([
+                'scan_id' => $scan->id,
+                'level' => 'warning',
+                'phase' => 'execution_prevented',
+                'message' => "Execution prevented: Assessment #{$scan->id} is in state [{$freshScan->status}]. Cannot launch duplicate ZAP execution.",
+            ]);
             return false;
         }
 
-        // Preflight Check 2: Docker CLI availability
-        if (!$this->runner->isAvailable()) {
-            $err = 'Preflight failed: Docker CLI executable is not installed or Docker Desktop daemon is not running.';
-            $this->scanService->updateStatus($scan, 'failed', $err);
-            $scan->update(['failure_reason' => $err]);
+        // Atomic Concurrency Protection: Ensure maximum 1 active ZAP container execution per Scan ID
+        $lockKey = "scan_execution_{$scan->id}";
+        $lock = Cache::lock($lockKey, (int) (config('zap.timeout', 3600) + 300));
+        if (!$lock->get()) {
+            ScanLog::create([
+                'scan_id' => $scan->id,
+                'level' => 'warning',
+                'phase' => 'execution_prevented',
+                'message' => "Execution prevented: Active ZAP execution lock is already held for Assessment #{$scan->id}.",
+            ]);
             return false;
         }
 
-        // Preflight Check 3: ZAP Docker image availability
-        $dockerImage = config('zap.docker_image', 'ghcr.io/zaproxy/zaproxy:stable');
-        if (!$this->runner->isDockerImageAvailable($dockerImage)) {
-            $err = "Preflight failed: OWASP ZAP Docker image [{$dockerImage}] is not available locally.";
-            $this->scanService->updateStatus($scan, 'failed', $err);
-            $scan->update(['failure_reason' => $err]);
-            return false;
-        }
-
-        // Preflight Check 4: Working directory creation & write permissions
         $workDir = str_replace('\\', '/', storage_path("app/zap/scan_{$scan->id}"));
+        $hostAuthReportPath = $workDir . '/auth-report.json';
 
         try {
-            File::ensureDirectoryExists($workDir);
+            // 1. Stage 1: Starting
+            $this->scanService->updateStatus($scan, 'starting', 'Initializing OWASP ZAP assessment pipeline.');
 
-            // Set directory permissions to 0777 because the directory is a Windows Docker bind mount
-            // and must be writable by the non-root ZAP container user (zap).
-            if (!@chmod($workDir, 0777)) {
-                throw new \Exception("Failed to set 0777 permissions on working directory [{$workDir}].");
+            // Preflight Check 1: Target URL validation
+            if (empty($scan->target_url) || !filter_var($scan->target_url, FILTER_VALIDATE_URL)) {
+                $err = 'Preflight failed: Invalid target URL specified.';
+                $this->scanService->updateStatus($scan, 'failed', $err);
+                $scan->update(['failure_reason' => $err]);
+                return false;
             }
 
-            if (!is_writable($workDir)) {
-                throw new \Exception("Working directory [{$workDir}] is not writable.");
+            // Preflight Check 2: Docker CLI availability
+            if (!$this->runner->isAvailable()) {
+                $err = 'Preflight failed: Docker CLI executable is not installed or Docker Desktop daemon is not running.';
+                $this->scanService->updateStatus($scan, 'failed', $err);
+                $scan->update(['failure_reason' => $err]);
+                return false;
             }
-        } catch (Throwable $e) {
-            $err = "Preflight failed: Unable to initialize writable working directory on host [{$workDir}]: " . $e->getMessage();
-            $this->scanService->updateStatus($scan, 'failed', $err);
-            $scan->update(['failure_reason' => $err]);
-            return false;
-        }
 
-        // Preflight Check 5: Target URL translation for Docker container networking
-        $dockerTargetUrl = $this->runner->translateTargetUrlForDocker($scan->target_url);
+            // Preflight Check 3: ZAP Docker image availability
+            $dockerImage = config('zap.docker_image', 'ghcr.io/zaproxy/zaproxy:stable');
+            if (!$this->runner->isDockerImageAvailable($dockerImage)) {
+                $err = "Preflight failed: OWASP ZAP Docker image [{$dockerImage}] is not available locally.";
+                $this->scanService->updateStatus($scan, 'failed', $err);
+                $scan->update(['failure_reason' => $err]);
+                return false;
+            }
 
-        $yamlFilename = 'assessment.yaml';
-        $hostYamlPath = $workDir . '/' . $yamlFilename;
-        $jsonReportFilename = 'report.json';
-        $hostJsonReportPath = $workDir . '/' . $jsonReportFilename;
+            // Preflight Check 4: Working directory creation & write permissions
+            try {
+                File::ensureDirectoryExists($workDir);
+                @chmod($workDir, 0777);
+                if (!is_writable($workDir)) {
+                    throw new \Exception("Working directory [{$workDir}] is not writable.");
+                }
+            } catch (Throwable $e) {
+                $err = "Preflight failed: Unable to initialize writable working directory on host [{$workDir}]: " . $e->getMessage();
+                $this->scanService->updateStatus($scan, 'failed', $err);
+                $scan->update(['failure_reason' => $err]);
+                return false;
+            }
 
-        try {
-            // Build Automation Framework YAML for container (/zap/wrk/report.json inside container)
+            // Preflight Check 5: Target URL translation for Docker container networking
+            $dockerTargetUrl = $this->runner->translateTargetUrlForDocker($scan->target_url);
+
+            $yamlFilename = 'assessment.yaml';
+            $hostYamlPath = $workDir . '/' . $yamlFilename;
+            $jsonReportFilename = 'report.json';
+            $hostJsonReportPath = $workDir . '/' . $jsonReportFilename;
+
+            // Build Automation Framework YAML
             $yamlContent = $this->configBuilder->buildYaml(
                 $scan,
                 '/zap/wrk',
@@ -114,7 +135,6 @@ class ZapService
             // 2. Stage 2: Running
             $this->scanService->updateStatus($scan, 'running', 'Starting OWASP ZAP Docker assessment.');
 
-            // Diagnostic Log: DOCKER_WORKDIR (Requirement #13)
             $resolvedHostWorkDir = $this->runner->toHostPath($workDir);
             ScanLog::create([
                 'scan_id' => $scan->id,
@@ -135,7 +155,7 @@ class ZapService
                 ]);
             };
 
-            // Execute container
+            // Execute ZAP container
             $result = $this->runner->runAutomationFramework(
                 $hostYamlPath,
                 $workDir,
@@ -161,7 +181,9 @@ class ZapService
                 ]);
 
                 $this->logSanitizedFailureDetails($scan, $result, $resolvedHostWorkDir, true);
-
+                if (File::exists($hostAuthReportPath)) {
+                    @File::delete($hostAuthReportPath);
+                }
                 return false;
             }
 
@@ -179,11 +201,13 @@ class ZapService
                 ]);
 
                 $this->logSanitizedFailureDetails($scan, $result, $resolvedHostWorkDir, false);
-
+                if (File::exists($hostAuthReportPath)) {
+                    @File::delete($hostAuthReportPath);
+                }
                 return false;
             }
 
-            // Audit Log: ZAP_STARTED (Requirement #12: recorded ONLY after Docker process succeeds or report is generated)
+            // Audit Log: ZAP_STARTED
             ScanLog::create([
                 'scan_id' => $scan->id,
                 'level' => 'info',
@@ -191,33 +215,15 @@ class ZapService
                 'message' => 'OWASP ZAP container started.',
             ]);
 
-            // Parse & Log Authentication Diagnostics
-            $hostAuthReportPath = $workDir . '/auth-report.json';
-            $authReport = null;
-            if (File::exists($hostAuthReportPath)) {
-                $rawAuthReport = @File::get($hostAuthReportPath);
-                if ($rawAuthReport !== false && $rawAuthReport !== '') {
-                    $decoded = json_decode($rawAuthReport, true);
-                    if (is_array($decoded)) {
-                        $authReport = $decoded;
-                    }
-                }
-            }
-
-            $authDiagnostics = $this->authDiagnosticsParser->parse($result, $scan, $authReport);
-            $authLogMessage = sprintf(
-                "ZAP_AUTH_DIAGNOSTICS Status: %s | Message: %s | Login URL: %s | User: %s",
-                strtoupper($authDiagnostics['status']),
-                $authDiagnostics['message'],
-                $authDiagnostics['login_url'] ?? 'N/A',
-                $authDiagnostics['user'] ?? 'AssessmentUser'
-            );
+            // Parse & Log Authentication Diagnostics memory-safely without reading giant files
+            $authReportSummary = $result['authReportSummary'] ?? $this->runner->extractAuthReportSummaryFromFile($hostAuthReportPath);
+            $authDiagnostics = $this->authDiagnosticsParser->parse($result, $scan, $authReportSummary);
 
             ScanLog::create([
                 'scan_id' => $scan->id,
-                'level' => $authDiagnostics['status'] === 'failed' ? 'warning' : 'info',
+                'level' => ($authDiagnostics['status'] === 'failed' || $authDiagnostics['status'] === 'authentication_failed') ? 'warning' : 'info',
                 'phase' => 'zap_auth_diagnostics',
-                'message' => $authLogMessage,
+                'message' => json_encode($authDiagnostics),
             ]);
 
             // 3. Stage 3: Processing Results
@@ -248,7 +254,20 @@ class ZapService
             $err = 'Assessment execution failure: Unable to decrypt stored authentication credentials. Please re-enter and save the credentials for this assessment.';
             $this->scanService->updateStatus($scan, 'failed', $err);
             $scan->update(['failure_reason' => $err]);
+            if (File::exists($hostAuthReportPath)) {
+                @File::delete($hostAuthReportPath);
+            }
             return false;
+        } catch (Throwable $e) {
+            $err = 'Assessment execution failure during post-processing: ' . $e->getMessage();
+            $this->scanService->updateStatus($scan, 'failed', $err);
+            $scan->update(['failure_reason' => $err]);
+            if (File::exists($hostAuthReportPath)) {
+                @File::delete($hostAuthReportPath);
+            }
+            return false;
+        } finally {
+            $lock->release();
         }
     }
 
@@ -326,18 +345,9 @@ class ZapService
         );
 
         $hostAuthReportPath = $workDir . '/auth-report.json';
-        $authReport = null;
-        if (File::exists($hostAuthReportPath)) {
-            $rawAuthReport = @File::get($hostAuthReportPath);
-            if ($rawAuthReport !== false && $rawAuthReport !== '') {
-                $decoded = json_decode($rawAuthReport, true);
-                if (is_array($decoded)) {
-                    $authReport = $decoded;
-                }
-            }
-        }
+        $authReportSummary = $result['authReportSummary'] ?? $this->runner->extractAuthReportSummaryFromFile($hostAuthReportPath);
 
-        $authDiagnostics = $this->authDiagnosticsParser->parse($result, $scan, $authReport);
+        $authDiagnostics = $this->authDiagnosticsParser->parse($result, $scan, $authReportSummary);
         $authStatus = strtoupper($authDiagnostics['status']);
 
         // Log dedicated structured outcome for UI display

@@ -28,15 +28,14 @@ class ZapConfigurationBuilder
         $authConfig = $scan->authenticationConfiguration;
         $scanConfig = $scan->scanConfiguration;
 
-        // Context URLs should include base URL and login URL base if different
-        $urls = [$baseUrl];
+        // Context URLs must have target URL as primary entry (urls[0])
+        $urls = [$targetUrl];
         if ($authConfig && $authConfig->login_url) {
             $loginUrl = $overrideTargetUrl
                 ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
                 : $authConfig->login_url;
-            $loginBaseUrl = $this->extractBaseUrl($loginUrl);
-            if (!in_array($loginBaseUrl, $urls, true)) {
-                $urls[] = $loginBaseUrl;
+            if (!in_array($loginUrl, $urls, true)) {
+                $urls[] = $loginUrl;
             }
         }
 
@@ -44,10 +43,29 @@ class ZapConfigurationBuilder
         $includePaths = [];
         $includedScopes = $scan->scanScopes->where('type', 'include');
         if ($includedScopes->isEmpty()) {
-            $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+            $targetPath = parse_url($targetUrl, PHP_URL_PATH);
+            if (!empty($targetPath) && $targetPath !== '/') {
+                $includePaths[] = $this->convertPathToRegex($baseUrl, rtrim($targetPath, '/') . '/*');
+            } else {
+                $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+            }
         } else {
             foreach ($includedScopes as $scope) {
                 $includePaths[] = $this->convertPathToRegex($baseUrl, $scope->path);
+            }
+        }
+
+        // Ensure login URL is in scope if authentication is configured
+        if ($authConfig && $authConfig->login_url) {
+            $loginUrl = $overrideTargetUrl
+                ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
+                : $authConfig->login_url;
+            $loginPath = parse_url($loginUrl, PHP_URL_PATH);
+            if (!empty($loginPath) && $loginPath !== '/') {
+                $loginRegex = $this->convertPathToRegex($baseUrl, rtrim($loginPath, '/') . '/*');
+                if (!in_array($loginRegex, $includePaths, true)) {
+                    $includePaths[] = $loginRegex;
+                }
             }
         }
 
@@ -212,8 +230,8 @@ class ZapConfigurationBuilder
                     'context' => $contextName,
                     'url' => $crawlSeedUrl,
                     'maxDuration' => 10,
-                    'maxCrawlDepth' => 0,
-                    'maxChildren' => 0,
+                    'maxCrawlDepth' => 5,
+                    'maxChildren' => 100,
                     'numberOfBrowsers' => 1,
                     'browserId' => 'firefox-headless',
                     'scopeCheck' => 'Flexible',
@@ -375,24 +393,41 @@ class ZapConfigurationBuilder
 
         $authConfig = $scan->authenticationConfiguration;
 
-        $urls = [$baseUrl];
+        $urls = [$targetUrl];
         if ($authConfig && $authConfig->login_url) {
             $loginUrl = $overrideTargetUrl
                 ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
                 : $authConfig->login_url;
-            $loginBaseUrl = $this->extractBaseUrl($loginUrl);
-            if (!in_array($loginBaseUrl, $urls, true)) {
-                $urls[] = $loginBaseUrl;
+            if (!in_array($loginUrl, $urls, true)) {
+                $urls[] = $loginUrl;
             }
         }
 
         $includePaths = [];
         $includedScopes = $scan->scanScopes->where('type', 'include');
         if ($includedScopes->isEmpty()) {
-            $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+            $targetPath = parse_url($targetUrl, PHP_URL_PATH);
+            if (!empty($targetPath) && $targetPath !== '/') {
+                $includePaths[] = $this->convertPathToRegex($baseUrl, rtrim($targetPath, '/') . '/*');
+            } else {
+                $includePaths[] = preg_quote($baseUrl, '#') . '.*';
+            }
         } else {
             foreach ($includedScopes as $scope) {
                 $includePaths[] = $this->convertPathToRegex($baseUrl, $scope->path);
+            }
+        }
+
+        if ($authConfig && $authConfig->login_url) {
+            $loginUrl = $overrideTargetUrl
+                ? (new ZapRunner())->translateTargetUrlForDocker($authConfig->login_url)
+                : $authConfig->login_url;
+            $loginPath = parse_url($loginUrl, PHP_URL_PATH);
+            if (!empty($loginPath) && $loginPath !== '/') {
+                $loginRegex = $this->convertPathToRegex($baseUrl, rtrim($loginPath, '/') . '/*');
+                if (!in_array($loginRegex, $includePaths, true)) {
+                    $includePaths[] = $loginRegex;
+                }
             }
         }
 

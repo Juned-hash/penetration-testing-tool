@@ -235,7 +235,7 @@ class ZapConfigurationBuilderTest extends TestCase
         $array = $builder->buildArray($scan, '/tmp/reports');
 
         $context = $array['env']['contexts'][0];
-        $this->assertContains('https://10.100.0.5:8443', $context['urls']);
+        $this->assertContains('https://10.100.0.5:8443/ords/r/intg001/spbx-app-inc/dashboard', $context['urls']);
         $this->assertContains(preg_quote('https://10.100.0.5:8443', '#') . '/ords/r/intg001/spbx\-app\-inc(?:/.*)?', $context['includePaths']);
         $this->assertStringNotContainsString('dashboard', $context['includePaths'][0]);
     }
@@ -266,6 +266,8 @@ class ZapConfigurationBuilderTest extends TestCase
         $clientSpiderJob = current(array_filter($array['jobs'], fn($j) => $j['type'] === 'spiderClient'));
         $this->assertEquals('firefox-headless', $clientSpiderJob['parameters']['browserId']);
         $this->assertEquals('Flexible', $clientSpiderJob['parameters']['scopeCheck']);
+        $this->assertEquals(5, $clientSpiderJob['parameters']['maxCrawlDepth']);
+        $this->assertEquals(100, $clientSpiderJob['parameters']['maxChildren']);
     }
 
     public function test_browser_mode_generates_zap_authentication_method_browser(): void
@@ -627,6 +629,83 @@ class ZapConfigurationBuilderTest extends TestCase
         $this->assertCount(1, $reportJobs);
         $this->assertEquals('traditional-json', $reportJobs[0]['parameters']['template']);
         $this->assertEquals('report.json', $reportJobs[0]['parameters']['reportFile']);
+    }
+
+    public function test_target_url_path_is_preserved_in_context_urls_and_spider_seed_urls(): void
+    {
+        $user = User::factory()->create();
+
+        $scan = Scan::create([
+            'user_id' => $user->id,
+            'name' => 'Target Path Preservation Scan',
+            'target_url' => 'https://soapbox.cloud/admins',
+            'environment' => 'production',
+            'status' => 'draft',
+        ]);
+
+        AuthenticationConfiguration::create([
+            'scan_id' => $scan->id,
+            'mode' => 'form',
+            'login_url' => 'https://soapbox.cloud/login',
+            'username' => 'admin@soapbox.cloud',
+            'password' => 'secret123',
+        ]);
+
+        $builder = new ZapConfigurationBuilder();
+        $array = $builder->buildArray($scan, '/tmp/reports');
+
+        $context = $array['env']['contexts'][0];
+        $this->assertSame('https://soapbox.cloud/admins', $context['urls'][0]);
+        $this->assertNotEquals('https://soapbox.cloud', $context['urls'][0]);
+
+        $jobs = array_column($array['jobs'], null, 'type');
+        $spider = $jobs['spider'];
+        $spiderClient = $jobs['spiderClient'];
+        $activeScan = $jobs['activeScan'];
+
+        $this->assertSame('https://soapbox.cloud/admins', $spider['parameters']['url']);
+        $this->assertSame('https://soapbox.cloud/admins', $spiderClient['parameters']['url']);
+        $this->assertSame('AssessmentUser', $spider['parameters']['user']);
+        $this->assertSame('AssessmentUser', $spiderClient['parameters']['user']);
+        $this->assertSame('AssessmentUser', $activeScan['parameters']['user']);
+    }
+
+    public function test_generic_target_url_paths_are_supported(): void
+    {
+        $user = User::factory()->create();
+        $builder = new ZapConfigurationBuilder();
+
+        $targetUrls = [
+            'https://example.com' => 'https://example.com',
+            'https://example.com/admin' => 'https://example.com/admin',
+            'https://example.com/admin/' => 'https://example.com/admin',
+            'https://example.com/admins' => 'https://example.com/admins',
+            'https://example.com/admins/' => 'https://example.com/admins',
+            'https://example.com/app' => 'https://example.com/app',
+        ];
+
+        foreach ($targetUrls as $inputTargetUrl => $expectedTargetUrl) {
+            $scan = Scan::create([
+                'user_id' => $user->id,
+                'name' => "Generic Target Path Scan {$inputTargetUrl}",
+                'target_url' => $inputTargetUrl,
+                'environment' => 'staging',
+                'status' => 'draft',
+            ]);
+
+            $array = $builder->buildArray($scan, '/tmp/reports');
+            $context = $array['env']['contexts'][0];
+
+            $this->assertSame($expectedTargetUrl, $context['urls'][0]);
+
+            $jobs = array_column($array['jobs'], null, 'type');
+            if (isset($jobs['spider'])) {
+                $this->assertSame($expectedTargetUrl, $jobs['spider']['parameters']['url']);
+            }
+            if (isset($jobs['spiderClient'])) {
+                $this->assertSame($expectedTargetUrl, $jobs['spiderClient']['parameters']['url']);
+            }
+        }
     }
 }
 
