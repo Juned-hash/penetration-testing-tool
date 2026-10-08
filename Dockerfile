@@ -26,6 +26,7 @@ RUN apk add --no-cache \
     docker-cli \
     git \
     unzip \
+    linux-headers \
     $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
@@ -40,7 +41,7 @@ RUN apk add --no-cache \
         intl \
     && pecl install redis \
     && docker-php-ext-enable redis \
-    && apk del $PHPIZE_DEPS
+    && apk del $PHPIZE_DEPS linux-headers
 
 # Copy custom PHP configuration (memory_limit = 512M)
 COPY docker/php/conf.d/memory-limit.ini /usr/local/etc/php/conf.d/memory-limit.ini
