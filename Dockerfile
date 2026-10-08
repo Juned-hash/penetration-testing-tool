@@ -28,6 +28,8 @@ RUN apk add --no-cache \
     unzip \
     linux-headers \
     $PHPIZE_DEPS \
+    && mkdir -p /usr/src/php/ext/redis \
+    && curl -fsSL https://github.com/phpredis/phpredis/archive/refs/tags/6.0.2.tar.gz | tar xvz -C /usr/src/php/ext/redis --strip-components=1 \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         pdo_mysql \
@@ -39,8 +41,7 @@ RUN apk add --no-cache \
         zip \
         opcache \
         intl \
-    && pecl install redis \
-    && docker-php-ext-enable redis \
+        redis \
     && apk del $PHPIZE_DEPS linux-headers
 
 # Copy custom PHP configuration (memory_limit = 512M)
