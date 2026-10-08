@@ -47,6 +47,7 @@ jobs:
           DB_PASSWORD="${{ secrets.DB_PASSWORD || 'pentest_password' }}"
           MYSQL_ROOT_PASSWORD="${{ secrets.MYSQL_ROOT_PASSWORD || 'root_password' }}"
           EOF
+          php artisan key:generate
 
       - name: Run unit & feature tests
         run: |
