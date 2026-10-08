@@ -48,6 +48,7 @@ jobs:
           MYSQL_ROOT_PASSWORD="${{ secrets.MYSQL_ROOT_PASSWORD || 'root_password' }}"
           EOF
           php artisan key:generate
+          php artisan db:seed --force
 
       - name: Run unit & feature tests
         run: |
@@ -159,6 +160,7 @@ jobs:
               --no-dev &&
             docker compose exec -T app php artisan key:generate --force &&
             docker compose exec -T app php artisan migrate --force &&
+            docker compose exec -T app php artisan db:seed --force &&
             docker compose exec -T app php artisan storage:link || true &&
             docker compose exec -T app php artisan optimize:clear &&
             docker compose exec -T app php artisan optimize &&
