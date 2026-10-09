@@ -9,24 +9,24 @@
     <div>
         @php
             $sevClass = match(strtolower($finding->severity)) {
-                'critical', 'high' => 'bg-danger',
-                'medium' => 'bg-warning text-dark',
-                'low' => 'bg-info text-dark',
-                default => 'bg-secondary',
+                'critical', 'high' => 'badge-high',
+                'medium' => 'badge-medium',
+                'low' => 'badge-low',
+                default => 'badge-info',
             };
         @endphp
         <div class="mb-2">
-            <span class="badge {{ $sevClass }} text-uppercase me-2 fs-6">{{ $finding->severity }}</span>
-            <span class="badge bg-light text-dark border me-2">Risk: {{ $finding->risk }}</span>
-            <span class="badge bg-light text-dark border me-2">Confidence: {{ $finding->confidence }}</span>
-            <span class="badge bg-dark text-uppercase me-2">Source: {{ $finding->source }}</span>
+            <span class="glass-badge {{ $sevClass }} text-uppercase me-2 font-size-12">{{ $finding->severity }}</span>
+            <span class="glass-badge bg-white text-dark me-2 font-size-12">Risk: {{ $finding->risk }}</span>
+            <span class="glass-badge bg-white text-dark me-2 font-size-12">Confidence: {{ $finding->confidence }}</span>
+            <span class="glass-badge bg-dark text-white text-uppercase me-2 font-size-12">Source: {{ $finding->source }}</span>
         </div>
-        <h4 class="fw-bold mb-1">{{ $finding->name }}</h4>
-        <span class="font-monospace text-muted">{{ $finding->url }}</span>
+        <h4 class="fw-bold mb-1 font-size-26 text-dark">{{ $finding->name }}</h4>
+        <span class="font-monospace text-secondary font-size-14">{{ $finding->url }}</span>
     </div>
     <div>
-        <a href="{{ route('scans.findings.index', $scan) }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left me-1"></i> Back to Findings List
+        <a href="{{ route('scans.findings.index', $scan) }}" class="app-btn-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Findings
         </a>
     </div>
 </div>
@@ -35,29 +35,29 @@
     <!-- Left Main Column: Request Details & Evidence -->
     <div class="col-lg-8">
         <!-- Target Request & Evidence Inspector Card -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-header bg-white py-3 border-0">
-                <h6 class="fw-bold mb-0"><i class="bi bi-terminal me-1"></i> Request Details & Evidence</h6>
+        <div class="glass-card mb-4">
+            <div class="glass-card-header">
+                <h6 class="fw-bold mb-0 font-size-18 text-dark"><i class="bi bi-terminal me-2 text-primary"></i>Request Details & Evidence</h6>
             </div>
-            <div class="card-body pt-0">
+            <div class="card-body p-4">
                 <div class="table-responsive mb-3">
-                    <table class="table table-sm table-borderless align-middle mb-0">
+                    <table class="table glass-table align-middle">
                         <tbody>
                             <tr>
-                                <td class="text-muted w-25">Target URL:</td>
-                                <td class="font-monospace fw-semibold text-break">{{ $finding->url }}</td>
+                                <td class="text-secondary w-25 font-size-14">Target URL:</td>
+                                <td class="font-monospace fw-semibold text-break font-size-14 text-dark">{{ $finding->url }}</td>
                             </tr>
                             <tr>
-                                <td class="text-muted">HTTP Method:</td>
+                                <td class="text-secondary font-size-14">HTTP Method:</td>
                                 <td>
-                                    <span class="badge bg-light text-dark border font-monospace">{{ $finding->method ?? 'GET' }}</span>
+                                    <span class="glass-badge bg-white text-dark font-monospace font-size-12">{{ $finding->method ?? 'GET' }}</span>
                                 </td>
                             </tr>
                             @if ($finding->parameter)
                                 <tr>
-                                    <td class="text-muted">Vulnerable Parameter:</td>
+                                    <td class="text-secondary font-size-14">Vulnerable Parameter:</td>
                                     <td>
-                                        <code class="text-danger fw-bold">{{ $finding->parameter }}</code>
+                                        <code class="text-danger fw-bold font-size-14">{{ $finding->parameter }}</code>
                                     </td>
                                 </tr>
                             @endif
@@ -67,8 +67,8 @@
 
                 @if ($finding->attack)
                     <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">ATTACK PAYLOAD</label>
-                        <div class="bg-dark text-danger p-3 rounded font-monospace small text-break">
+                        <label class="form-label text-secondary font-size-12 fw-semibold">ATTACK PAYLOAD</label>
+                        <div class="bg-dark text-danger p-3 rounded font-monospace font-size-12 text-break">
                             {{ $finding->attack }}
                         </div>
                     </div>
@@ -76,8 +76,8 @@
 
                 @if ($finding->evidence)
                     <div>
-                        <label class="form-label text-muted small fw-semibold">EVIDENCE</label>
-                        <div class="bg-light p-3 rounded border font-monospace small text-break">
+                        <label class="form-label text-secondary font-size-12 fw-semibold">EVIDENCE</label>
+                        <div class="glass-panel font-monospace font-size-12 text-break">
                             {{ $finding->evidence }}
                         </div>
                     </div>
@@ -86,22 +86,22 @@
         </div>
 
         <!-- Vulnerability Description & Impact -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-header bg-white py-3 border-0">
-                <h6 class="fw-bold mb-0"><i class="bi bi-file-text me-1"></i> Description & Impact</h6>
+        <div class="glass-card mb-4">
+            <div class="glass-card-header">
+                <h6 class="fw-bold mb-0 font-size-18 text-dark"><i class="bi bi-file-text me-2 text-primary"></i>Description & Impact</h6>
             </div>
-            <div class="card-body pt-0">
+            <div class="card-body p-4">
                 <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">DESCRIPTION</label>
-                    <div class="text-dark small lh-base">
+                    <label class="form-label text-secondary font-size-12 fw-semibold">DESCRIPTION</label>
+                    <div class="text-dark font-size-14 lh-base">
                         {{ $finding->description ?: 'No detailed description provided by scanner.' }}
                     </div>
                 </div>
 
                 @if ($finding->impact)
                     <div>
-                        <label class="form-label text-muted small fw-semibold">POTENTIAL IMPACT</label>
-                        <div class="text-dark small lh-base">
+                        <label class="form-label text-secondary font-size-12 fw-semibold">POTENTIAL IMPACT</label>
+                        <div class="text-dark font-size-14 lh-base">
                             {{ $finding->impact }}
                         </div>
                     </div>
@@ -110,22 +110,22 @@
         </div>
 
         <!-- Remediation Guidance & Solution -->
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white py-3 border-0">
-                <h6 class="fw-bold mb-0"><i class="bi bi-shield-check me-1"></i> Remediation Guidance</h6>
+        <div class="glass-card">
+            <div class="glass-card-header">
+                <h6 class="fw-bold mb-0 font-size-18 text-dark"><i class="bi bi-shield-check me-2 text-primary"></i>Remediation Guidance</h6>
             </div>
-            <div class="card-body pt-0">
+            <div class="card-body p-4">
                 <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">RECOMMENDED SOLUTION</label>
-                    <div class="text-dark small lh-base">
+                    <label class="form-label text-secondary font-size-12 fw-semibold">RECOMMENDED SOLUTION</label>
+                    <div class="text-dark font-size-14 lh-base">
                         {{ $finding->solution ?: 'Refer to standard web security best practices for remediation.' }}
                     </div>
                 </div>
 
                 @if ($finding->reference)
                     <div>
-                        <label class="form-label text-muted small fw-semibold">EXTERNAL REFERENCES</label>
-                        <div class="font-monospace small text-break">
+                        <label class="form-label text-secondary font-size-12 fw-semibold">EXTERNAL REFERENCES</label>
+                        <div class="font-monospace font-size-12 text-break">
                             @foreach (explode("\n", $finding->reference) as $ref)
                                 @if (trim($ref))
                                     <div>
@@ -150,64 +150,64 @@
     <!-- Right Sidebar Column: Classifications & Metadata -->
     <div class="col-lg-4">
         <!-- Security Classifications Card -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-header bg-white py-3 border-0">
-                <h6 class="fw-bold mb-0"><i class="bi bi-bookmarks me-1"></i> Classifications</h6>
+        <div class="glass-card mb-4">
+            <div class="glass-card-header">
+                <h6 class="fw-bold mb-0 font-size-18 text-dark"><i class="bi bi-bookmarks me-2 text-primary"></i>Classifications</h6>
             </div>
-            <div class="card-body pt-0">
+            <div class="card-body p-4">
                 <div class="mb-3">
-                    <span class="text-muted small d-block mb-1">External Plugin ID:</span>
-                    <span class="badge bg-light text-dark border font-monospace fs-6">
+                    <span class="text-secondary font-size-12 d-block mb-1">External Plugin ID:</span>
+                    <span class="glass-badge bg-white text-dark font-monospace font-size-14">
                         {{ $finding->external_id ?: 'N/A' }}
                     </span>
                 </div>
 
                 <div class="mb-3">
-                    <span class="text-muted small d-block mb-1">CWE Identifier:</span>
+                    <span class="text-secondary font-size-12 d-block mb-1">CWE Identifier:</span>
                     @if ($finding->cwe_id)
-                        <span class="badge bg-dark font-monospace fs-6">CWE-{{ $finding->cwe_id }}</span>
+                        <span class="glass-badge bg-dark text-white font-monospace font-size-14">CWE-{{ $finding->cwe_id }}</span>
                     @else
-                        <span class="text-muted small">N/A</span>
+                        <span class="text-secondary font-size-12">N/A</span>
                     @endif
                 </div>
 
                 <div class="mb-3">
-                    <span class="text-muted small d-block mb-1">WASC Identifier:</span>
+                    <span class="text-secondary font-size-12 d-block mb-1">WASC Identifier:</span>
                     @if ($finding->wasc_id)
-                        <span class="badge bg-dark font-monospace fs-6">WASC-{{ $finding->wasc_id }}</span>
+                        <span class="glass-badge bg-dark text-white font-monospace font-size-14">WASC-{{ $finding->wasc_id }}</span>
                     @else
-                        <span class="text-muted small">N/A</span>
+                        <span class="text-secondary font-size-12">N/A</span>
                     @endif
                 </div>
 
                 <div class="mb-0">
-                    <span class="text-muted small d-block mb-1">WSTG Identifier:</span>
+                    <span class="text-secondary font-size-12 d-block mb-1">WSTG Identifier:</span>
                     @if ($finding->wstg_id)
-                        <span class="badge bg-dark font-monospace fs-6">{{ $finding->wstg_id }}</span>
+                        <span class="glass-badge bg-dark text-white font-monospace font-size-14">{{ $finding->wstg_id }}</span>
                     @else
-                        <span class="text-muted small">N/A</span>
+                        <span class="text-secondary font-size-12">N/A</span>
                     @endif
                 </div>
             </div>
         </div>
 
         <!-- Finding Status Card -->
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white py-3 border-0">
-                <h6 class="fw-bold mb-0"><i class="bi bi-info-circle me-1"></i> Status & Metadata</h6>
+        <div class="glass-card">
+            <div class="glass-card-header">
+                <h6 class="fw-bold mb-0 font-size-18 text-dark"><i class="bi bi-info-circle me-2 text-primary"></i>Status & Metadata</h6>
             </div>
-            <div class="card-body pt-0">
+            <div class="card-body p-4">
                 <div class="mb-3">
-                    <span class="text-muted small d-block">Status:</span>
-                    <span class="badge bg-success text-capitalize fs-6">{{ $finding->status }}</span>
+                    <span class="text-secondary font-size-12 d-block">Status:</span>
+                    <span class="glass-badge bg-success text-white text-capitalize font-size-14">{{ $finding->status }}</span>
                 </div>
                 <div class="mb-3">
-                    <span class="text-muted small d-block">Discovered Date:</span>
-                    <span class="fw-semibold small">{{ $finding->created_at->format('M d, Y H:i:s') }}</span>
+                    <span class="text-secondary font-size-12 d-block">Discovered Date:</span>
+                    <span class="fw-semibold font-size-14 text-dark">{{ $finding->created_at->format('M d, Y H:i:s') }}</span>
                 </div>
                 <div class="mb-0">
-                    <span class="text-muted small d-block">Assessment:</span>
-                    <a href="{{ route('scans.show', $scan) }}" class="small fw-semibold text-decoration-none">
+                    <span class="text-secondary font-size-12 d-block">Assessment:</span>
+                    <a href="{{ route('scans.show', $scan) }}" class="font-size-14 fw-semibold text-decoration-none text-dark">
                         {{ $scan->name }}
                     </a>
                 </div>

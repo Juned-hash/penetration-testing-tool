@@ -5,23 +5,25 @@
 
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <p class="text-muted mb-0">Manage and monitor authorized web application security assessments.</p>
-    <a href="{{ route('scans.create') }}" class="btn btn-primary fw-semibold">
-        <i class="bi bi-plus-circle me-1"></i> New Assessment
+    <p class="text-secondary mb-0 font-size-14">Manage and monitor authorized web application security assessments.</p>
+    <a href="{{ route('scans.create') }}" class="app-btn-primary">
+        <i class="bi bi-plus-circle"></i> New Assessment
     </a>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="glass-card">
     <div class="table-responsive">
         @if ($scans->isEmpty())
-            <x-empty-state icon="bi-search" title="No Assessments Configured" message="You have not created any security assessments yet.">
-                <a href="{{ route('scans.create') }}" class="btn btn-primary btn-sm">
-                    <i class="bi bi-plus-circle me-1"></i> Create Assessment
-                </a>
-            </x-empty-state>
+            <div class="p-4">
+                <x-empty-state icon="bi-search" title="No Assessments Configured" message="You have not created any security assessments yet.">
+                    <a href="{{ route('scans.create') }}" class="app-btn-primary app-btn-sm mt-2">
+                        <i class="bi bi-plus-circle"></i> Create Assessment
+                    </a>
+                </x-empty-state>
+            </div>
         @else
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
+            <table class="table glass-table align-middle">
+                <thead>
                     <tr>
                         <th>Application Name</th>
                         <th>Target URL</th>
@@ -35,18 +37,18 @@
                 <tbody>
                     @foreach ($scans as $scan)
                         <tr>
-                            <td class="fw-bold">{{ $scan->name }}</td>
+                            <td class="fw-bold font-size-14 text-dark">{{ $scan->name }}</td>
                             <td>
-                                <a href="{{ route('scans.show', $scan) }}" class="text-decoration-none text-dark font-monospace small">
+                                <a href="{{ route('scans.show', $scan) }}" class="text-decoration-none text-dark font-size-14">
                                     {{ $scan->target_url }}
                                 </a>
                             </td>
-                            <td><span class="badge bg-light text-dark border">{{ ucfirst($scan->environment) }}</span></td>
+                            <td><span class="glass-badge bg-white text-dark font-size-12">{{ ucfirst($scan->environment) }}</span></td>
                             <td><x-status-badge :status="$scan->status" /></td>
-                            <td><span class="badge bg-secondary">{{ $scan->findings_count }}</span></td>
-                            <td class="text-muted small">{{ $scan->created_at->format('M d, Y H:i') }}</td>
+                            <td><span class="badge bg-secondary font-size-12">{{ $scan->findings_count }}</span></td>
+                            <td class="text-secondary font-size-12">{{ $scan->created_at->format('M d, Y H:i') }}</td>
                             <td class="text-end">
-                                <a href="{{ route('scans.show', $scan) }}" class="btn btn-sm btn-outline-primary">
+                                <a href="{{ route('scans.show', $scan) }}" class="app-btn-secondary app-btn-sm">
                                     View Details
                                 </a>
                             </td>

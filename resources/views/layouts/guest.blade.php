@@ -7,16 +7,21 @@
 
     <title>{{ config('app.name', 'Security Assessment Platform') }}</title>
 
+    <!-- Google Fonts: Roboto -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
     @vite(['resources/scss/app.scss', 'resources/js/app.js'])
 </head>
-<body class="bg-light d-flex align-items-center justify-content-center min-vh-100 py-4">
-    <div class="container" style="max-width: 420px;">
+<body class="d-flex align-items-center justify-content-center min-vh-100 py-4">
+    <div class="container" style="max-width: 440px;">
         <div class="text-center mb-4">
-            <div class="d-inline-flex align-items-center justify-content-center bg-dark text-white rounded-circle mb-2" style="width: 56px; height: 56px;">
-                <i class="bi bi-shield-lock-fill fs-3"></i>
+            <div class="d-inline-flex align-items-center justify-content-center text-white rounded-circle mb-3 shadow" style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--blue), #2B7DD4);">
+                <i class="bi bi-shield-lock-fill font-size-26"></i>
             </div>
-            <h4 class="fw-bold mb-1">Security Assessment</h4>
-            <p class="text-muted small">Authorized Application Testing Platform</p>
+            <h4 class="fw-bold mb-1 font-size-26 text-dark">Security Assessment</h4>
+            <p class="text-secondary font-size-14">Authorized Application Testing Platform</p>
         </div>
 
         @yield('content')

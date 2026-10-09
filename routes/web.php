@@ -49,10 +49,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/reports/{report}/download', [ReportController::class, 'download'])->name('reports.download');
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+    Route::post('/settings/db/seed', [SettingsController::class, 'dbSeed'])->name('settings.db.seed');
 
     // Admin-Only Routes
     Route::middleware('admin')->group(function () {
         Route::post('/settings/queue/restart', [SettingsController::class, 'restartQueue'])->name('settings.queue.restart');
+        Route::post('/settings/migrate', [SettingsController::class, 'migrate'])->name('settings.migrate');
+        Route::post('/settings/config/clear', [SettingsController::class, 'configClear'])->name('settings.config.clear');
+        Route::post('/settings/cache/clear', [SettingsController::class, 'cacheClear'])->name('settings.cache.clear');
+        Route::post('/settings/route/clear', [SettingsController::class, 'routeClear'])->name('settings.route.clear');
+        Route::post('/settings/optimize/clear', [SettingsController::class, 'optimizeClear'])->name('settings.optimize.clear');
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
