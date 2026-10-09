@@ -29,6 +29,8 @@ jobs:
 
       - name: Prepare environment
         run: |
+          mkdir -p storage/framework/views storage/framework/cache/data storage/framework/sessions storage/framework/testing storage/app/reports storage/app/private storage/app/public storage/logs
+          chmod -R 777 storage bootstrap/cache || true
           cp .env.example .env
           cat << 'EOF' >> .env
           APP_ENV=testing

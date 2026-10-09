@@ -49,7 +49,7 @@ class SettingsController extends Controller
 
             return redirect()
                 ->route('settings.index')
-                ->with('success', 'Queue workers restart & scale signal transmitted successfully.');
+                ->with('success', 'Queue worker restart signal transmitted successfully.');
         } catch (\Throwable $e) {
             Log::error('QUEUE_RESTART_FAILED: ' . $e->getMessage());
             return redirect()
