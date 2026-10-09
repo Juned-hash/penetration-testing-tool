@@ -88,7 +88,7 @@ class GeneratePdfReport implements ShouldQueue
             $renderedHtml = view('reports.pdf', ['scan' => $scan])->render();
             $htmlBytes = strlen($renderedHtml);
 
-            Log::info("PDF_GENERATION_STARTED: Scan #{$scan->id} ('{$scan->name}') - Findings: {$findingCount}, HTML Size: {$htmlBytes} bytes.");
+            $this->safeLog('info', "PDF_GENERATION_STARTED: Scan #{$scan->id} ('{$scan->name}') - Findings: {$findingCount}, HTML Size: {$htmlBytes} bytes.");
 
             // 4. Render PDF
             $relativePath = $pdfGenerator->generate($scan);
@@ -117,7 +117,7 @@ class GeneratePdfReport implements ShouldQueue
                 'message' => "PDF report generated successfully in {$durationSeconds}s ({$pdfBytes} bytes).",
             ]);
 
-            Log::info("PDF_GENERATION_COMPLETED: Scan #{$scan->id} - Duration: {$durationSeconds}s, Findings: {$findingCount}, HTML: {$htmlBytes}B, PDF: {$pdfBytes}B.");
+            $this->safeLog('info', "PDF_GENERATION_COMPLETED: Scan #{$scan->id} - Duration: {$durationSeconds}s, Findings: {$findingCount}, HTML: {$htmlBytes}B, PDF: {$pdfBytes}B.");
         } catch (Throwable $e) {
             $durationSeconds = round(microtime(true) - $startTime, 2);
             $safeError = mb_strimwidth($e->getMessage(), 0, 255, '...');
@@ -134,9 +134,21 @@ class GeneratePdfReport implements ShouldQueue
                 'message' => "PDF report generation failed: {$safeError}",
             ]);
 
-            Log::error("PDF_GENERATION_FAILED: Scan #{$scan->id} - Error: {$e->getMessage()}", [
+            $this->safeLog('error', "PDF_GENERATION_FAILED: Scan #{$scan->id} - Error: {$e->getMessage()}", [
                 'exception' => $e,
             ]);
+        }
+    }
+
+    /**
+     * Safely log messages without letting log stream permissions fail job execution.
+     */
+    private function safeLog(string $level, string $message, array $context = []): void
+    {
+        try {
+            Log::log($level, $message, $context);
+        } catch (Throwable $e) {
+            // Prevent log file stream errors from failing job execution
         }
     }
 

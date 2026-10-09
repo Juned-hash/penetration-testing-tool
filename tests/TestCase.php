@@ -27,5 +27,10 @@ abstract class TestCase extends BaseTestCase
                 @mkdir($dir, 0777, true);
             }
         }
+
+        $logFile = storage_path('logs/laravel.log');
+        if (file_exists($logFile)) {
+            @chmod($logFile, 0666);
+        }
     }
 }
